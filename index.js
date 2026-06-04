@@ -32,8 +32,21 @@ const loadConfig = () => {
     }
 };
 
-const saveConfig = (d) =>
+const saveConfig = (d) => {
+    // Safeguard: don't save if d is empty and config already has data
+    try {
+        if (Object.keys(d).length === 0) {
+            const existing = loadConfig();
+            if (Object.keys(existing).length > 0) {
+                console.warn('⚠️ Prevented saving empty config over existing data!');
+                return;
+            }
+        }
+    } catch (err) {
+        console.error('Safeguard check error:', err);
+    }
     fs.writeFileSync('./config.json', JSON.stringify(d, null, 2));
+};
 
 const DEFAULT_SEARCHING_MESSAGE = '🔎 Searching RuneScape name...';
 const DEFAULT_WELCOME_REPLY = 'Welcome to the server!';
@@ -388,23 +401,37 @@ async function getClanMemberInfo(rsn, clanName) {
 const CLEANUP_AGE = 1000 * 60 * 60 * 24 * 7; // 7 days
 
 const cleanStaleTemp = (cfg) => {
+    let hasChanges = false;
     const now = Date.now();
     for (const gid of Object.keys(cfg)) {
         if (cfg[gid].wizardTemp) {
             for (const uid of Object.keys(cfg[gid].wizardTemp)) {
                 const t = cfg[gid].wizardTemp[uid]?.timestamp;
-                if (t && now - t > CLEANUP_AGE) delete cfg[gid].wizardTemp[uid];
+                if (t && now - t > CLEANUP_AGE) {
+                    delete cfg[gid].wizardTemp[uid];
+                    hasChanges = true;
+                }
             }
-            if (Object.keys(cfg[gid].wizardTemp).length === 0) delete cfg[gid].wizardTemp;
+            if (Object.keys(cfg[gid].wizardTemp).length === 0) {
+                delete cfg[gid].wizardTemp;
+                hasChanges = true;
+            }
         }
         if (cfg[gid].ticketWizardTemp) {
             for (const uid of Object.keys(cfg[gid].ticketWizardTemp)) {
                 const t = cfg[gid].ticketWizardTemp[uid]?.timestamp;
-                if (t && now - t > CLEANUP_AGE) delete cfg[gid].ticketWizardTemp[uid];
+                if (t && now - t > CLEANUP_AGE) {
+                    delete cfg[gid].ticketWizardTemp[uid];
+                    hasChanges = true;
+                }
             }
-            if (Object.keys(cfg[gid].ticketWizardTemp).length === 0) delete cfg[gid].ticketWizardTemp;
+            if (Object.keys(cfg[gid].ticketWizardTemp).length === 0) {
+                delete cfg[gid].ticketWizardTemp;
+                hasChanges = true;
+            }
         }
     }
+    return hasChanges;
 };
 
 client.once('ready', async () => {
@@ -586,16 +613,18 @@ client.once('ready', async () => {
 
     console.log('Ready as', client.user.tag);
 
-    // cleanup stale wizard temp entries on startup
+    // cleanup stale wizard temp entries on startup (only save if changes were made)
     const cfg = loadConfig();
-    cleanStaleTemp(cfg);
-    saveConfig(cfg);
+    if (cleanStaleTemp(cfg)) {
+        saveConfig(cfg);
+    }
 
-    // schedule daily cleanup
+    // schedule daily cleanup (only save if changes were made)
     setInterval(() => {
         const c = loadConfig();
-        cleanStaleTemp(c);
-        saveConfig(c);
+        if (cleanStaleTemp(c)) {
+            saveConfig(c);
+        }
     }, 1000 * 60 * 60 * 24);
 });
 

@@ -1142,4 +1142,37 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
+client.on('guildMemberAdd', async member => {
+
+    const cfg = loadConfig();
+    const guildCfg = cfg[member.guild.id];
+
+    if (!guildCfg?.welcomeChannel) return;
+
+    const ch = member.guild.channels.cache.get(guildCfg.welcomeChannel);
+    if (!ch) return;
+
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+        .setCustomId('add_rsn')
+        .setLabel('Link with RSN')
+        .setStyle(ButtonStyle.Primary)
+    );
+
+    const msg = await ch.send({
+        content: `<@${member.id}> Click Link with RSN below to verify your RuneScape name and get your role.`,
+        components: [row]
+    });
+
+    cfg[member.guild.id].welcomeMessages ??= {};
+
+    cfg[member.guild.id].welcomeMessages[member.id] = {
+        channelId: ch.id,
+        messageId: msg.id
+    };
+
+    saveConfig(cfg);
+});
+
+
 client.login(process.env.DISCORD_TOKEN).catch(err => console.error('Login failed:', err));

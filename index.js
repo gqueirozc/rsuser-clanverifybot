@@ -788,11 +788,6 @@ client.on('interactionCreate', async interaction => {
             }
         }
 
-        if (interaction.customId === SETUP_TICKET_TYPE_SUPPORTS_SELECT) {
-            cfg[gid].ticketWizardTemp[uid].typeSupportRoles = interaction.values || [];
-            cfg[gid].ticketWizardTemp[uid].timestamp = Date.now();
-        }
-
         if (interaction.customId === TICKET_MANAGE_CUSTOMIZE_TYPE_SELECT) {
             const typeId = interaction.values[0];
             const ticketType = cfg[gid]?.ticketTypes?.[typeId];

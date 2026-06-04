@@ -353,75 +353,51 @@ const buildSetupWizardMessage = (guildCfg = {}) => {
 };
 
 const buildSetupTicketWizardMessage = (guildCfg = {}) => {
-    const isConfigured = guildCfg.ticketCategory && guildCfg.ticketSupportRole && guildCfg.ticketTypes && Object.keys(guildCfg.ticketTypes).length;
-    
-    const buttons = [];
-    
-    if (!isConfigured) {
-        // Show only the setup wizard button if not configured
-        buttons.push(
-            new ButtonBuilder()
-                .setCustomId(SETUP_TICKET_WIZARD_BUTTON)
-                .setLabel('Start Ticket Setup Wizard')
-                .setStyle(ButtonStyle.Success)
-        );
-    } else {
-        // Show management buttons if configured
-        buttons.push(
-            new ButtonBuilder()
-                .setCustomId(TICKET_MANAGE_SET_CATEGORY)
-                .setLabel('Add / Update Category')
-                .setStyle(ButtonStyle.Primary),
-            new ButtonBuilder()
-                .setCustomId(TICKET_MANAGE_REMOVE_CATEGORY)
-                .setLabel('Remove Category')
-                .setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder()
-                .setCustomId(TICKET_MANAGE_SET_SUPPORT)
-                .setLabel('Set Support Role')
-                .setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder()
-                .setCustomId(TICKET_MANAGE_ADD_TYPE)
-                .setLabel('Add Ticket Type')
-                .setStyle(ButtonStyle.Success),
-            new ButtonBuilder()
-                .setCustomId(TICKET_MANAGE_CUSTOMIZE_TYPE)
-                .setLabel('Customize Ticket Info')
-                .setStyle(ButtonStyle.Secondary)
-        );
-
-        buttons.push(
-            new ButtonBuilder()
-                .setCustomId(TICKET_MANAGE_CUSTOMIZE_PANEL)
-                .setLabel('Customize Panel')
-                .setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder()
-                .setCustomId(TICKET_MANAGE_VIEW_TYPES)
-                .setLabel('View Ticket Types')
-                .setStyle(ButtonStyle.Secondary)
-        );
-    }
+    const buttons = [
+        new ButtonBuilder()
+            .setCustomId(TICKET_MANAGE_SET_CATEGORY)
+            .setLabel('Add / Update Category')
+            .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+            .setCustomId(TICKET_MANAGE_REMOVE_CATEGORY)
+            .setLabel('Remove Category')
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId(TICKET_MANAGE_SET_SUPPORT)
+            .setLabel('Set Support Role')
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId(TICKET_MANAGE_ADD_TYPE)
+            .setLabel('Add Ticket Type')
+            .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+            .setCustomId(TICKET_MANAGE_CUSTOMIZE_TYPE)
+            .setLabel('Customize Ticket Info')
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId(TICKET_MANAGE_CUSTOMIZE_PANEL)
+            .setLabel('Customize Panel')
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId(TICKET_MANAGE_VIEW_TYPES)
+            .setLabel('View Ticket Types')
+            .setStyle(ButtonStyle.Secondary)
+    ];
 
     const rows = [];
     for (let i = 0; i < buttons.length; i += 5) {
-        const row = new ActionRowBuilder().addComponents(buttons.slice(i, i + 5));
-        rows.push(row);
+        rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
     }
 
     const embed = new EmbedBuilder()
         .setTitle('Ticket Setup')
-        .setDescription(isConfigured 
-            ? 'Your ticket system is configured. Use the buttons below to manage it.'
-            : 'Click the button below to configure your ticket category, default support role, and an initial ticket type.')
-        .setColor(0x57F287);
-    
-    if (isConfigured) {
-        embed.addFields(
-            { name: 'Category', value: `<#${guildCfg.ticketCategory}>`, inline: true },
-            { name: 'Default Support Role', value: `<@&${guildCfg.ticketSupportRole}>`, inline: true },
-            { name: 'Ticket Types', value: Object.keys(guildCfg.ticketTypes).length.toString(), inline: true }
+        .setDescription('Use the buttons below to configure the ticket system. You can set the category, support role, add ticket types, and customize what users see when creating a ticket.')
+        .setColor(0x57F287)
+        .addFields(
+            { name: 'Category', value: guildCfg.ticketCategory ? `<#${guildCfg.ticketCategory}>` : 'Not set', inline: true },
+            { name: 'Support Role', value: guildCfg.ticketSupportRole ? `<@&${guildCfg.ticketSupportRole}>` : 'Not set', inline: true },
+            { name: 'Ticket Types', value: guildCfg.ticketTypes ? Object.keys(guildCfg.ticketTypes).length.toString() : '0', inline: true }
         );
-    }
 
     return {
         embeds: [embed],
@@ -1337,46 +1313,11 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ content: 'Select channels and roles for your clan setup, then click Continue.', components: rows, flags: 64 });
         }
 
-        if (customId === SETUP_TICKET_WIZARD_BUTTON) {
-            // Show select menus for ticket category and default support role, plus ability to pick default support roles for the type
-            const categorySelect = new ChannelSelectMenuBuilder()
-                .setCustomId(SETUP_TICKET_CATEGORY_SELECT)
-                .setPlaceholder('Select ticket category')
-                .setChannelTypes([ChannelType.GuildCategory])
-                .setMinValues(1)
-                .setMaxValues(1);
-
-            const supportRoleSelect = new RoleSelectMenuBuilder()
-                .setCustomId(SETUP_TICKET_SUPPORT_ROLE_SELECT)
-                .setPlaceholder('Select default support role')
-                .setMinValues(1)
-                .setMaxValues(1);
-
-            const typeSupportsSelect = new RoleSelectMenuBuilder()
-                .setCustomId(SETUP_TICKET_TYPE_SUPPORTS_SELECT)
-                .setPlaceholder('Optional support roles for initial ticket type')
-                .setMinValues(0)
-                .setMaxValues(5);
-
-            const rows = [
-                new ActionRowBuilder().addComponents(categorySelect),
-                new ActionRowBuilder().addComponents(supportRoleSelect),
-                new ActionRowBuilder().addComponents(typeSupportsSelect),
-                new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(SETUP_TICKET_WIZARD_CONTINUE)
-                        .setLabel('Continue (enter ticket type)')
-                        .setStyle(ButtonStyle.Primary)
-                )
-            ];
-
-            const gid = interaction.guild?.id;
-            const uid = interaction.user.id;
-            cfg[gid].ticketWizardTemp ??= {};
-            cfg[gid].ticketWizardTemp[uid] ??= { timestamp: Date.now() };
-            saveConfig(cfg);
-
-            return interaction.reply({ content: 'Select category and support roles, then click Continue.', components: rows, flags: 64 });
+        if (customId === SETUP_TICKET_WIZARD_BUTTON || customId === SETUP_TICKET_WIZARD_CONTINUE) {
+            return interaction.reply({
+                content: 'Ticket setup now uses the button panel directly. Re-post the ticket setup wizard panel with /setup-ticket-wizard to refresh it and configure using the buttons.',
+                flags: 64
+            });
         }
 
         if (customId === SETUP_WIZARD_CONTINUE) {
@@ -1391,9 +1332,9 @@ client.on('interactionCreate', async interaction => {
                 });
             }
 
-            // Delete the "Saved selections" message
+            // Delete the ephemeral setup prompt after continue is clicked
             try {
-                await interaction.message.delete().catch(() => {});
+                await interaction.deleteReply().catch(() => {});
             } catch (err) {
                 // ignore
             }
@@ -1417,45 +1358,10 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (customId === SETUP_TICKET_WIZARD_CONTINUE) {
-            // Delete the "Saved selections" message
-            try {
-                await interaction.message.delete().catch(() => {});
-            } catch (err) {
-                // ignore
-            }
-            const gid = interaction.guild?.id;
-            const uid = interaction.user.id;
-            const stored = cfg[gid].ticketWizardTemp?.[uid] || {};
-
-            if (!stored.category || !stored.defaultSupportRole) {
-                return interaction.reply({
-                    content: 'Please select the ticket category and default support role before continuing.',
-                    flags: 64
-                });
-            }
-
-            const modal = new ModalBuilder()
-                .setCustomId('setup_ticket_wizard_modal')
-                .setTitle('Ticket Setup - Type');
-
-            const typeNameInput = new TextInputBuilder()
-                .setCustomId('ticket_type_name')
-                .setLabel('Ticket type name')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true);
-
-            const typeDescInput = new TextInputBuilder()
-                .setCustomId('ticket_type_desc')
-                .setLabel('Ticket description')
-                .setStyle(TextInputStyle.Paragraph)
-                .setRequired(true);
-
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(typeNameInput),
-                new ActionRowBuilder().addComponents(typeDescInput)
-            );
-
-            return interaction.showModal(modal);
+            return interaction.reply({
+                content: 'Ticket setup now uses the button panel directly. Re-post the ticket setup wizard panel with /setup-ticket-wizard to refresh it and configure using the buttons.',
+                flags: 64
+            });
         }
 
         if (customId.startsWith(TICKET_TYPE_BUTTON_PREFIX)) {

@@ -342,27 +342,68 @@ const buildSetupWizardMessage = (guildCfg = {}) => {
 };
 
 const buildSetupTicketWizardMessage = (guildCfg = {}) => {
-    const setupLabel = guildCfg.ticketCategory && guildCfg.ticketSupportRole && guildCfg.ticketTypes && Object.keys(guildCfg.ticketTypes).length ? 'Update Ticket Setup' : 'Start Ticket Setup Wizard';
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId(SETUP_TICKET_WIZARD_BUTTON)
-            .setLabel(setupLabel)
-            .setStyle(ButtonStyle.Success)
-    );
+    const isConfigured = guildCfg.ticketCategory && guildCfg.ticketSupportRole && guildCfg.ticketTypes && Object.keys(guildCfg.ticketTypes).length;
+    
+    const buttons = [];
+    
+    if (!isConfigured) {
+        // Show only the setup wizard button if not configured
+        buttons.push(
+            new ButtonBuilder()
+                .setCustomId(SETUP_TICKET_WIZARD_BUTTON)
+                .setLabel('Start Ticket Setup Wizard')
+                .setStyle(ButtonStyle.Success)
+        );
+    } else {
+        // Show management buttons if configured
+        buttons.push(
+            new ButtonBuilder()
+                .setCustomId(SETUP_TICKET_WIZARD_BUTTON)
+                .setLabel('⚙️ Update Setup')
+                .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId('ticket_manage_add_type')
+                .setLabel('➕ Add Type')
+                .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+                .setCustomId('ticket_manage_customize_type')
+                .setLabel('✏️ Customize Type')
+                .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+                .setCustomId('ticket_manage_customize_panel')
+                .setLabel('🎨 Panel')
+                .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+                .setCustomId('ticket_manage_view_types')
+                .setLabel('📋 Types')
+                .setStyle(ButtonStyle.Secondary)
+        );
+    }
+
+    const rows = [];
+    for (let i = 0; i < buttons.length; i += 5) {
+        const row = new ActionRowBuilder().addComponents(buttons.slice(i, i + 5));
+        rows.push(row);
+    }
 
     const embed = new EmbedBuilder()
-        .setTitle('Ticket Setup Wizard')
-        .setDescription('Click the button below to configure your ticket category, default support role, and an initial ticket type.')
-        .setColor(0x57F287)
-        .addFields(
-            { name: 'Step 1', value: 'Click the button to open the ticket setup modal.', inline: false },
-            { name: 'Step 2', value: 'Provide the ticket category, default support role, ticket type name, description, and optional support roles.', inline: false },
-            { name: 'Step 3', value: 'Use /create-ticket-panel to publish the ticket type panel once setup is complete.', inline: false }
+        .setTitle('Ticket Setup')
+        .setDescription(isConfigured 
+            ? 'Your ticket system is configured. Use the buttons below to manage it.'
+            : 'Click the button below to configure your ticket category, default support role, and an initial ticket type.')
+        .setColor(0x57F287);
+    
+    if (isConfigured) {
+        embed.addFields(
+            { name: 'Category', value: `<#${guildCfg.ticketCategory}>`, inline: true },
+            { name: 'Default Support Role', value: `<@&${guildCfg.ticketSupportRole}>`, inline: true },
+            { name: 'Ticket Types', value: Object.keys(guildCfg.ticketTypes).length.toString(), inline: true }
         );
+    }
 
     return {
         embeds: [embed],
-        components: [row]
+        components: rows
     };
 };
 
@@ -1490,6 +1531,47 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
+        if (customId === 'ticket_manage_add_type') {
+            return interaction.reply({
+                content: 'Use `/ticket-type-add` to add a new ticket type.\n\n**Command:** `/ticket-type-add name: <name> description: <description> [support_roles: role1,role2] [notify_role: role]`',
+                flags: 64
+            });
+        }
+
+        if (customId === 'ticket_manage_customize_type') {
+            return interaction.reply({
+                content: 'Use `/ticket-type-customize` to customize what users see when they create a ticket.\n\n**Command:** `/ticket-type-customize name: <name> [embed_title: <title>] [embed_message: <message>]`\n\nUse `{type}` and `{subject}` placeholders in the embed message.',
+                flags: 64
+            });
+        }
+
+        if (customId === 'ticket_manage_customize_panel') {
+            return interaction.reply({
+                content: 'Use `/ticket-panel-customize` to customize the ticket panel title and description.\n\n**Command:** `/ticket-panel-customize title: <title> description: <description>`',
+                flags: 64
+            });
+        }
+
+        if (customId === 'ticket_manage_view_types') {
+            const gid = interaction.guild?.id;
+            const ticketTypes = cfg[gid]?.ticketTypes || {};
+            const entries = Object.entries(ticketTypes);
+
+            if (!entries.length) {
+                return interaction.reply({
+                    content: 'No ticket types are configured yet. Use `/ticket-type-add` to create one.',
+                    flags: 64
+                });
+            }
+
+            return interaction.reply({
+                content: entries.map(([typeId, type]) =>
+                    `• **${type.label}** (${typeId})\n  ${type.description}\n  Access: ${type.supportRoleIds.length ? type.supportRoleIds.map(id => `<@&${id}>`).join(', ') : 'none'}${type.notifyRoleId ? `\n  Notify: <@&${type.notifyRoleId}>` : ''}`
+                ).join('\n\n'),
+                flags: 64
+            });
+        }
+
         if (customId === 'add_rsn') {
 
             const guildCfg = cfg[gid];
@@ -1636,7 +1718,7 @@ client.on('interactionCreate', async interaction => {
         delete cfg[gid].wizardTemp?.[uid];
         saveConfig(cfg);
 
-        // Delete the original wizard panel message
+        // Edit the original wizard panel message with configured info
         try {
             const panelMsg = cfg[gid].setupWizardPanel;
             if (panelMsg?.channelId && panelMsg?.messageId) {
@@ -1644,16 +1726,36 @@ client.on('interactionCreate', async interaction => {
                 if (panelChannel) {
                     const msg = await panelChannel.messages.fetch(panelMsg.messageId).catch(() => null);
                     if (msg) {
-                        await msg.delete().catch(() => null);
+                        const configEmbed = new EmbedBuilder()
+                            .setTitle('✅ Clan Setup Configured')
+                            .setDescription('Your clan configuration has been saved.')
+                            .setColor(0x57F287)
+                            .addFields(
+                                { name: 'Clan Name', value: `**${clan}**`, inline: false },
+                                { name: 'Welcome Channel', value: welcomeChannel.toString(), inline: true },
+                                { name: 'Member Role', value: memberRole.toString(), inline: true },
+                                { name: 'Guest Role', value: guestRole.toString(), inline: true },
+                                ...(logsChannel ? [{ name: 'Logs Channel', value: logsChannel.toString(), inline: true }] : [])
+                            )
+                            .setFooter({ text: 'Click the button below to update your clan setup' });
+
+                        const updateButton = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(SETUP_WIZARD_BUTTON)
+                                .setLabel('Update Clan Setup')
+                                .setStyle(ButtonStyle.Primary)
+                        );
+
+                        await msg.edit({ embeds: [configEmbed], components: [updateButton] }).catch(() => null);
                     }
                 }
             }
         } catch (err) {
-            console.error('Failed to delete setup wizard panel message:', err);
+            console.error('Failed to edit setup wizard panel message:', err);
         }
 
         return interaction.reply({
-            content: `Clan setup complete!\n• Clan: **${clan}**\n• Welcome channel: ${welcomeChannel.toString()}\n• Member role: ${memberRole.toString()}\n• Guest role: ${guestRole.toString()}${logsChannel ? `\n• Logs channel: ${logsChannel.toString()}` : ''}`,
+            content: `✅ Clan setup complete!\n• Clan: **${clan}**\n• Welcome channel: ${welcomeChannel.toString()}\n• Member role: ${memberRole.toString()}\n• Guest role: ${guestRole.toString()}${logsChannel ? `\n• Logs channel: ${logsChannel.toString()}` : ''}`,
             flags: 64
         });
     }

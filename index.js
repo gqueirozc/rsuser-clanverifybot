@@ -1163,21 +1163,38 @@ client.on('interactionCreate', async interaction => {
                 });
             }
 
+            // Delete the "Saved selections" message
+            try {
+                await interaction.message.delete().catch(() => {});
+            } catch (err) {
+                // ignore
+            }
+
             const modal = new ModalBuilder()
                 .setCustomId('setup_wizard_modal')
                 .setTitle('Clan Setup Wizard - Name');
 
+            const currentClan = cfg[gid]?.clan || '';
             const clanInput = new TextInputBuilder()
                 .setCustomId('clan_name')
                 .setLabel('Clan name')
                 .setStyle(TextInputStyle.Short)
                 .setRequired(true);
+            if (currentClan) {
+                clanInput.setValue(currentClan);
+            }
 
             modal.addComponents(new ActionRowBuilder().addComponents(clanInput));
             return interaction.showModal(modal);
         }
 
         if (customId === SETUP_TICKET_WIZARD_CONTINUE) {
+            // Delete the "Saved selections" message
+            try {
+                await interaction.message.delete().catch(() => {});
+            } catch (err) {
+                // ignore
+            }
             const gid = interaction.guild?.id;
             const uid = interaction.user.id;
             const stored = cfg[gid].ticketWizardTemp?.[uid] || {};
@@ -1430,19 +1447,6 @@ client.on('interactionCreate', async interaction => {
         delete cfg[gid].wizardTemp?.[uid];
         saveConfig(cfg);
 
-        try {
-            const panel = cfg[gid].setupWizardPanel;
-            if (panel?.channelId && panel?.messageId) {
-                const panelChannel = await interaction.guild.channels.fetch(panel.channelId).catch(() => null);
-                const panelMessage = panelChannel ? await panelChannel.messages.fetch(panel.messageId).catch(() => null) : null;
-                if (panelMessage) {
-                    await panelMessage.edit(buildSetupWizardMessage(cfg[gid]));
-                }
-            }
-        } catch (err) {
-            console.error('Refresh setup wizard panel error:', err);
-        }
-
         return interaction.reply({
             content: `Clan setup complete!\n• Clan: **${clan}**\n• Welcome channel: ${welcomeChannel.toString()}\n• Member role: <@&${memberRole.id}>\n• Guest role: <@&${guestRole.id}>${logsChannel ? `\n• Logs channel: ${logsChannel.toString()}` : ''}`,
             flags: 64
@@ -1485,19 +1489,6 @@ client.on('interactionCreate', async interaction => {
         // clear persisted ticket wizard temp
         delete cfg[gid].ticketWizardTemp?.[uid];
         saveConfig(cfg);
-
-        try {
-            const panel = cfg[gid].ticketSetupWizardPanel;
-            if (panel?.channelId && panel?.messageId) {
-                const panelChannel = await interaction.guild.channels.fetch(panel.channelId).catch(() => null);
-                const panelMessage = panelChannel ? await panelChannel.messages.fetch(panel.messageId).catch(() => null) : null;
-                if (panelMessage) {
-                    await panelMessage.edit(buildSetupTicketWizardMessage(cfg[gid]));
-                }
-            }
-        } catch (err) {
-            console.error('Refresh ticket wizard panel error:', err);
-        }
 
         return interaction.reply({ content: `Ticket setup complete!\n• Category: ${category.toString()}\n• Default support role: <@&${fallbackRole.id}>\n• Ticket type added: **${typeName}**\nYou can now run /create-ticket-panel to publish the ticket panel, or add more ticket types with /ticket-type-add.`, flags: 64 });
     }
@@ -1727,7 +1718,7 @@ client.on('guildMemberAdd', async member => {
     );
 
     const msg = await ch.send({
-        content: 'Click Link with RSN below to verify your RuneScape name and get your role.',
+        content: `<@${member.id}> Click Link with RSN below to verify your RuneScape name and get your role.`,
         components: [row]
     });
 

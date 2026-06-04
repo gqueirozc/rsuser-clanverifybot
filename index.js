@@ -563,6 +563,28 @@ client.on('interactionCreate', async interaction => {
     if (interaction.isButton()) {
         const customId = interaction.customId;
 
+
+        if (customId === TICKET_ADD_TYPE_CONTINUE) {
+            const modal = new ModalBuilder()
+                .setCustomId(TICKET_MANAGE_ADD_TYPE_MODAL)
+                .setTitle('Add Ticket Type');
+            const nameInput = new TextInputBuilder()
+                .setCustomId('ticket_type_name')
+                .setLabel('Ticket type name')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+            const descInput = new TextInputBuilder()
+                .setCustomId('ticket_type_desc')
+                .setLabel('Ticket description')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true);
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(nameInput),
+                new ActionRowBuilder().addComponents(descInput)
+            );
+            return interaction.showModal(modal);
+        }        
+
         if (customId === SETUP_WIZARD_BUTTON) {
             const welcomeChannelSelect = new ChannelSelectMenuBuilder().setCustomId(SETUP_WELCOME_CHANNEL_SELECT).setPlaceholder('Select welcome text channel').setChannelTypes([ChannelType.GuildText]).setMinValues(1).setMaxValues(1);
             const logsChannelSelect = new ChannelSelectMenuBuilder().setCustomId(SETUP_LOGS_CHANNEL_SELECT).setPlaceholder('Select optional logs channel').setChannelTypes([ChannelType.GuildText]).setMinValues(0).setMaxValues(1);
@@ -574,7 +596,7 @@ client.on('interactionCreate', async interaction => {
                 new ActionRowBuilder().addComponents(memberRoleSelect),
                 new ActionRowBuilder().addComponents(guestRoleSelect),
                 new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId(SETUP_WIZARD_CONTINUE).setLabel('Continue (enter clan name)').setStyle(ButtonStyle.Primary)
+                    new ButtonBuilder().setCustomId(SETUP_WIZARD_CONTINUE).setLabel('Continue').setStyle(ButtonStyle.Primary)
                 )
             ];
 
@@ -680,18 +702,39 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (customId === TICKET_MANAGE_ADD_TYPE) {
-            const modal = new ModalBuilder().setCustomId('ticket_manage_add_type_modal').setTitle('Add Ticket Type');
-            const nameInput = new TextInputBuilder().setCustomId('ticket_type_name').setLabel('Ticket type name').setStyle(TextInputStyle.Short).setRequired(true);
-            const descInput = new TextInputBuilder().setCustomId('ticket_type_desc').setLabel('Ticket description').setStyle(TextInputStyle.Paragraph).setRequired(true);
-            const accessInput = new TextInputBuilder().setCustomId('ticket_type_access_roles').setLabel('Access roles (mentions or IDs)').setStyle(TextInputStyle.Paragraph).setRequired(false);
-            const notifyInput = new TextInputBuilder().setCustomId('ticket_type_notify_role').setLabel('Notify role (mention or ID)').setStyle(TextInputStyle.Short).setRequired(false);
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(nameInput),
-                new ActionRowBuilder().addComponents(descInput),
-                new ActionRowBuilder().addComponents(accessInput),
-                new ActionRowBuilder().addComponents(notifyInput)
-            );
-            return interaction.showModal(modal);
+            const uid = interaction.user.id;
+            cfg[gid].addTypeTemp ??= {};
+            cfg[gid].addTypeTemp[uid] = { timestamp: Date.now() };
+            saveConfig(cfg);
+
+            const accessRoleSelect = new RoleSelectMenuBuilder()
+                .setCustomId('ticket_add_type_access_roles_select')
+                .setPlaceholder('Select access roles (who can see this ticket type)')
+                .setMinValues(0)
+                .setMaxValues(10);
+
+            const notifyRoleSelect = new RoleSelectMenuBuilder()
+                .setCustomId('ticket_add_type_notify_role_select')
+                .setPlaceholder('Select notify role (optional, pinged on ticket open)')
+                .setMinValues(0)
+                .setMaxValues(1);
+
+            const continueBtn = new ButtonBuilder()
+                .setCustomId('ticket_add_type_continue')
+                .setLabel('Continue (enter name & description)')
+                .setStyle(ButtonStyle.Primary);
+
+            const rows = [
+                new ActionRowBuilder().addComponents(accessRoleSelect),
+                new ActionRowBuilder().addComponents(notifyRoleSelect),
+                new ActionRowBuilder().addComponents(continueBtn)
+            ];
+
+            return interaction.reply({
+                content: 'Select the roles for this ticket type, then click Continue.',
+                components: rows,
+                flags: 64
+            });
         }
 
         if (customId === TICKET_MANAGE_CUSTOMIZE_TYPE) {
@@ -754,6 +797,24 @@ client.on('interactionCreate', async interaction => {
         cfg[gid].wizardTemp[uid] ??= {};
         cfg[gid].ticketWizardTemp ??= {};
         cfg[gid].ticketWizardTemp[uid] ??= {};
+
+        if (interaction.customId === 'ticket_add_type_access_roles_select') {
+            cfg[gid].addTypeTemp ??= {};
+            cfg[gid].addTypeTemp[uid] ??= {};
+            cfg[gid].addTypeTemp[uid].accessRoleIds = interaction.values;
+            cfg[gid].addTypeTemp[uid].timestamp = Date.now();
+            saveConfig(cfg);
+            return interaction.update({ components: interaction.message.components });
+        }
+
+        if (interaction.customId === 'ticket_add_type_notify_role_select') {
+            cfg[gid].addTypeTemp ??= {};
+            cfg[gid].addTypeTemp[uid] ??= {};
+            cfg[gid].addTypeTemp[uid].notifyRoleId = interaction.values[0] || null;
+            cfg[gid].addTypeTemp[uid].timestamp = Date.now();
+            saveConfig(cfg);
+            return interaction.update({ components: interaction.message.components });
+        }
 
         if (interaction.customId === SETUP_WELCOME_CHANNEL_SELECT) {
             cfg[gid].wizardTemp[uid].welcomeChannel = interaction.values[0];
@@ -914,8 +975,14 @@ client.on('interactionCreate', async interaction => {
     if (interaction.isModalSubmit() && interaction.customId === 'ticket_manage_add_type_modal') {
         const name = interaction.fields.getTextInputValue('ticket_type_name').trim();
         const typeDesc = interaction.fields.getTextInputValue('ticket_type_desc').trim();
-        const accessRolesInput = interaction.fields.getTextInputValue('ticket_type_access_roles').trim();
-        const notifyRoleInput = interaction.fields.getTextInputValue('ticket_type_notify_role').trim();
+        const uid = interaction.user.id;
+
+        // Read roles saved from the select menus
+        const stored = cfg[gid].addTypeTemp?.[uid] || {};
+        const accessRoleIds = stored.accessRoleIds || [];
+        const notifyRoleId = stored.notifyRoleId || null;
+        delete cfg[gid].addTypeTemp?.[uid];
+
         const typeId = normalizeTicketTypeId(name);
         if (!typeId) {
             return interaction.reply({ content: 'Invalid ticket type name. Use letters or numbers.', flags: 64 });
@@ -926,16 +993,15 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ content: `A ticket type with that name already exists: ${name}`, flags: 64 });
         }
 
-        const accessRoleIds = parseRoleIds(accessRolesInput || '');
-        const notifyRoleIds = parseRoleIds(notifyRoleInput || '');
-        cfg[gid].ticketTypes[typeId] = {
-            label: name,
-            description: typeDesc,
-            accessRoleIds,
-            notifyRoleId: notifyRoleIds[0] || null
-        };
+        cfg[gid].ticketTypes[typeId] = { label: name, description: typeDesc, accessRoleIds, notifyRoleId };
         saveConfig(cfg);
 
+        // Delete the role-select message
+        try {
+            await interaction.message?.delete().catch(() => null);
+        } catch (_) {}
+
+        // Refresh the ticket setup wizard panel if present
         try {
             const panel = cfg[gid].ticketSetupWizardPanel;
             if (panel?.channelId && panel?.messageId) {

@@ -65,6 +65,12 @@ const SETUP_MEMBER_ROLE_SELECT = 'setup_member_role_select';
 const SETUP_GUEST_ROLE_SELECT = 'setup_guest_role_select';
 const SETUP_LOGS_CHANNEL_SELECT = 'setup_logs_channel_select';
 const SETUP_WIZARD_CONTINUE = 'setup_wizard_continue';
+const SETUP_TICKET_NOTIFY_ROLE_SELECT = 'setup_ticket_notify_role_select';
+
+const DEFAULT_TICKET_PANEL_TITLE = 'Open a Support Ticket';
+const DEFAULT_TICKET_PANEL_DESC = 'Choose the ticket type that matches your issue. A new private channel will be created for you and the configured support roles.';
+const DEFAULT_TICKET_EMBED_TITLE = 'Ticket: {type}';
+const DEFAULT_TICKET_EMBED_DESC = 'Issue: {subject}';
 
 const tempSetup = {}; // in-memory temporary selections during wizard (per guild -> user)
 
@@ -184,7 +190,7 @@ const resolveRole = async (guild, value) => {
     return guild.roles.cache.get(match[1]) || await guild.roles.fetch(match[1]).catch(() => null);
 };
 
-const buildTicketPanelMessage = (ticketTypes) => {
+const buildTicketPanelMessage = (ticketTypes, guildCfg = {}) => {
     const buttons = Object.entries(ticketTypes || {}).map(([typeId, type]) =>
         new ButtonBuilder()
             .setCustomId(`${TICKET_TYPE_BUTTON_PREFIX}${typeId}`)
@@ -196,9 +202,12 @@ const buildTicketPanelMessage = (ticketTypes) => {
         new ActionRowBuilder().addComponents(buttonRow)
     );
 
+    const panelTitle = guildCfg.ticketPanelTitle || DEFAULT_TICKET_PANEL_TITLE;
+    const panelDesc = guildCfg.ticketPanelDescription || DEFAULT_TICKET_PANEL_DESC;
+
     const embed = new EmbedBuilder()
-        .setTitle('Open a Support Ticket')
-        .setDescription('Choose the ticket type that matches your issue. A new private channel will be created for you and the configured support roles.')
+        .setTitle(panelTitle)
+        .setDescription(panelDesc)
         .setColor(0x5865F2)
         .addFields(
             { name: 'How it works', value: '1) Click a button\n2) Describe your issue\n3) A private channel is created with support access', inline: false },
@@ -289,12 +298,14 @@ const closeTicketChannel = async (channel, supportRoleId) => {
     }
 };
 
-const buildTicketEmbed = (member, subject, supportRoleIds, typeLabel, notifyRoleId) => {
+const buildTicketEmbed = (member, subject, supportRoleIds, typeLabel, notifyRoleId, customTitle = null, customMsg = null) => {
+    const title = customTitle?.replace('{type}', typeLabel) || DEFAULT_TICKET_EMBED_TITLE.replace('{type}', typeLabel);
+    const description = customMsg?.replace('{subject}', subject) || DEFAULT_TICKET_EMBED_DESC.replace('{subject}', subject);
     const supportAccess = supportRoleIds?.length ? supportRoleIds.map(id => `<@&${id}>`).join(', ') : 'No role access configured';
 
     return new EmbedBuilder()
-        .setTitle(`Ticket: ${typeLabel}`)
-        .setDescription(subject || 'No subject provided.')
+        .setTitle(title)
+        .setDescription(description)
         .addFields(
             { name: 'Requester', value: `<@${member.id}>`, inline: true },
             { name: 'Support access', value: supportAccess, inline: true },
@@ -303,7 +314,7 @@ const buildTicketEmbed = (member, subject, supportRoleIds, typeLabel, notifyRole
         .setTimestamp();
 };
 
-const buildTicketPanel = (ticketTypes) => buildTicketPanelMessage(ticketTypes);
+const buildTicketPanel = (ticketTypes, guildCfg = {}) => buildTicketPanelMessage(ticketTypes, guildCfg);
 
 const buildSetupWizardMessage = (guildCfg = {}) => {
     const setupLabel = guildCfg.clan && guildCfg.welcomeChannel && guildCfg.memberRole && guildCfg.guestRole ? 'Update Clan Setup' : 'Start Clan Setup Wizard';
@@ -604,6 +615,41 @@ client.once('ready', async () => {
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
         new SlashCommandBuilder()
+        .setName('ticket-panel-customize')
+        .setDescription('Customize the ticket panel title and description')
+        .addStringOption(o =>
+            o.setName('title')
+            .setDescription('Panel title')
+            .setRequired(false)
+        )
+        .addStringOption(o =>
+            o.setName('description')
+            .setDescription('Panel description')
+            .setRequired(false)
+        )
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+        new SlashCommandBuilder()
+        .setName('ticket-type-customize')
+        .setDescription('Customize the embed title and message for a ticket type')
+        .addStringOption(o =>
+            o.setName('name')
+            .setDescription('Ticket type name')
+            .setRequired(true)
+        )
+        .addStringOption(o =>
+            o.setName('embed_title')
+            .setDescription('Custom embed title (use {type} for ticket type name)')
+            .setRequired(false)
+        )
+        .addStringOption(o =>
+            o.setName('embed_message')
+            .setDescription('Custom embed description (use {subject} for issue subject)')
+            .setRequired(false)
+        )
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+        new SlashCommandBuilder()
         .setName('status')
         .setDescription('Show config')
 
@@ -709,6 +755,24 @@ client.on('interactionCreate', async interaction => {
                 });
             }
 
+            // Check bot permissions
+            const botMember = await interaction.guild.members.fetchMe().catch(() => null);
+            if (botMember) {
+                const perms = channel.permissionsFor(botMember);
+                if (!perms?.has(PermissionFlagsBits.SendMessages)) {
+                    return interaction.reply({
+                        content: `❌ I don't have permission to send messages in ${channel.toString()}.`,
+                        flags: 64
+                    });
+                }
+                if (!perms?.has(PermissionFlagsBits.ManageMessages)) {
+                    return interaction.reply({
+                        content: `❌ I don't have permission to manage messages in ${channel.toString()}. (needed to pin)`,
+                        flags: 64
+                    });
+                }
+            }
+
             const panelData = buildSetupWizardMessage(guildCfg);
             cfg[gid].setupWizardPanel ??= {};
             let panelMessage = null;
@@ -722,7 +786,7 @@ client.on('interactionCreate', async interaction => {
                 }
 
                 if (panelMessage) {
-                    await panelMessage.edit(panelData);
+                    await panelMessage.edit(panelData).catch(() => null);
                 } else {
                     panelMessage = await channel.send(panelData);
                 }
@@ -737,9 +801,9 @@ client.on('interactionCreate', async interaction => {
                 };
                 saveConfig(cfg);
             } catch (err) {
-                console.error('Setup wizard panel error:', err);
+                console.error('Setup wizard panel error:', err.message || err);
                 return interaction.reply({
-                    content: 'Unable to post the setup wizard panel. Check permissions and channel settings.',
+                    content: `❌ Unable to post the setup wizard panel: ${err.message || 'Unknown error'}`,
                     flags: 64
                 });
             }
@@ -759,6 +823,24 @@ client.on('interactionCreate', async interaction => {
                 });
             }
 
+            // Check bot permissions
+            const botMember = await interaction.guild.members.fetchMe().catch(() => null);
+            if (botMember) {
+                const perms = channel.permissionsFor(botMember);
+                if (!perms?.has(PermissionFlagsBits.SendMessages)) {
+                    return interaction.reply({
+                        content: `❌ I don't have permission to send messages in ${channel.toString()}.`,
+                        flags: 64
+                    });
+                }
+                if (!perms?.has(PermissionFlagsBits.ManageMessages)) {
+                    return interaction.reply({
+                        content: `❌ I don't have permission to manage messages in ${channel.toString()}. (needed to pin)`,
+                        flags: 64
+                    });
+                }
+            }
+
             const panelData = buildSetupTicketWizardMessage(guildCfg);
             cfg[gid].ticketSetupWizardPanel ??= {};
             let panelMessage = null;
@@ -772,7 +854,7 @@ client.on('interactionCreate', async interaction => {
                 }
 
                 if (panelMessage) {
-                    await panelMessage.edit(panelData);
+                    await panelMessage.edit(panelData).catch(() => null);
                 } else {
                     panelMessage = await channel.send(panelData);
                 }
@@ -787,9 +869,9 @@ client.on('interactionCreate', async interaction => {
                 };
                 saveConfig(cfg);
             } catch (err) {
-                console.error('Ticket setup wizard panel error:', err);
+                console.error('Ticket setup wizard panel error:', err.message || err);
                 return interaction.reply({
-                    content: 'Unable to post the ticket setup wizard panel. Check permissions and channel settings.',
+                    content: `❌ Unable to post the ticket setup wizard panel: ${err.message || 'Unknown error'}`,
                     flags: 64
                 });
             }
@@ -921,7 +1003,7 @@ client.on('interactionCreate', async interaction => {
                 });
             }
 
-            const panelData = buildTicketPanelMessage(ticketTypes);
+            const panelData = buildTicketPanelMessage(ticketTypes, guildCfg);
             cfg[gid].ticketPanel ??= {};
 
             try {
@@ -934,7 +1016,7 @@ client.on('interactionCreate', async interaction => {
                 }
 
                 if (panelMessage) {
-                    await panelMessage.edit(panelData);
+                    await panelMessage.edit(panelData).catch(() => null);
                 } else {
                     panelMessage = await channel.send(panelData);
                 }
@@ -1074,6 +1156,50 @@ client.on('interactionCreate', async interaction => {
                 content: inClan ?
                     `✅ ${member.user.tag} is verified and a member of ${clan}${clanRank ? ` (rank ${clanRank})` : ''}. ${roleText}` :
                     `✅ ${member.user.tag} is verified but not listed in ${clan}. ${roleText}`
+            });
+        }
+
+        if (interaction.commandName === 'ticket-panel-customize') {
+            const title = interaction.options.getString('title');
+            const description = interaction.options.getString('description');
+
+            if (title) cfg[gid].ticketPanelTitle = title;
+            if (description) cfg[gid].ticketPanelDescription = description;
+            saveConfig(cfg);
+
+            const currentTitle = cfg[gid].ticketPanelTitle || DEFAULT_TICKET_PANEL_TITLE;
+            const currentDesc = cfg[gid].ticketPanelDescription || DEFAULT_TICKET_PANEL_DESC;
+
+            return interaction.reply({
+                content: `✅ Ticket panel customized:\n**Title:** ${currentTitle}\n**Description:** ${currentDesc}`,
+                flags: 64
+            });
+        }
+
+        if (interaction.commandName === 'ticket-type-customize') {
+            const name = interaction.options.getString('name');
+            const customTitle = interaction.options.getString('embed_title');
+            const customMessage = interaction.options.getString('embed_message');
+            const typeId = normalizeTicketTypeId(name);
+
+            if (!cfg[gid].ticketTypes?.[typeId]) {
+                return interaction.reply({
+                    content: `Ticket type not found: ${name}`,
+                    flags: 64
+                });
+            }
+
+            if (customTitle) cfg[gid].ticketTypes[typeId].customTitle = customTitle;
+            if (customMessage) cfg[gid].ticketTypes[typeId].customMessage = customMessage;
+            saveConfig(cfg);
+
+            const type = cfg[gid].ticketTypes[typeId];
+            const displayTitle = type.customTitle || DEFAULT_TICKET_EMBED_TITLE;
+            const displayMsg = type.customMessage || DEFAULT_TICKET_EMBED_DESC;
+
+            return interaction.reply({
+                content: `✅ Ticket type **${name}** customized:\n**Embed title:** ${displayTitle}\n**Embed message:** ${displayMsg}`,
+                flags: 64
             });
         }
 
@@ -1630,9 +1756,8 @@ client.on('interactionCreate', async interaction => {
         );
 
         await ticketChannel.send({
-            content: `${ticketType.notifyRoleId ? `<@&${ticketType.notifyRoleId}> ` : ''}A new **${ticketType.label}** ticket has been opened by <@${interaction.user.id}>.
-Subject: ${subject}`,
-            embeds: [buildTicketEmbed(interaction.user, subject, ticketType.notifyRoleId)],
+            content: `${ticketType.notifyRoleId ? `<@&${ticketType.notifyRoleId}> ` : ''}A new **${ticketType.label}** ticket has been opened by <@${interaction.user.id}>.\nSubject: ${subject}`,
+            embeds: [buildTicketEmbed(interaction.user, subject, supportRoleIds, ticketType.label, ticketType.notifyRoleId, ticketType.customTitle, ticketType.customMessage)],
             components: [ticketButtons]
         }).catch(() => null);
 

@@ -12,6 +12,8 @@ const {
     TextInputBuilder,
     TextInputStyle,
     EmbedBuilder,
+    ChannelSelectMenuBuilder,
+    RoleSelectMenuBuilder,
     ChannelType
 } = require('discord.js');
 
@@ -41,6 +43,17 @@ const TICKET_DELETE_BUTTON = 'delete_ticket';
 const TICKET_MODAL_PREFIX = 'ticket_modal_';
 const SETUP_WIZARD_BUTTON = 'setup_wizard_start';
 const SETUP_TICKET_WIZARD_BUTTON = 'setup_ticket_wizard_start';
+const SETUP_TICKET_CATEGORY_SELECT = 'setup_ticket_category_select';
+const SETUP_TICKET_SUPPORT_ROLE_SELECT = 'setup_ticket_support_role_select';
+const SETUP_TICKET_TYPE_SUPPORTS_SELECT = 'setup_ticket_type_supports_select';
+const SETUP_TICKET_WIZARD_CONTINUE = 'setup_ticket_wizard_continue';
+const SETUP_WELCOME_CHANNEL_SELECT = 'setup_welcome_channel_select';
+const SETUP_MEMBER_ROLE_SELECT = 'setup_member_role_select';
+const SETUP_GUEST_ROLE_SELECT = 'setup_guest_role_select';
+const SETUP_LOGS_CHANNEL_SELECT = 'setup_logs_channel_select';
+const SETUP_WIZARD_CONTINUE = 'setup_wizard_continue';
+
+const tempSetup = {}; // in-memory temporary selections during wizard (per guild -> user)
 
 const getGuildConfig = (cfg, gid) => {
     if (!gid) return null;
@@ -1010,49 +1023,54 @@ client.on('interactionCreate', async interaction => {
         const customId = interaction.customId;
 
         if (customId === SETUP_WIZARD_BUTTON) {
-            const modal = new ModalBuilder()
-                .setCustomId('setup_wizard_modal')
-                .setTitle('Clan Setup Wizard');
+            // Send ephemeral select menus for channels/roles and a continue button to open clan-name modal
+            const welcomeChannelSelect = new ChannelSelectMenuBuilder()
+                .setCustomId(SETUP_WELCOME_CHANNEL_SELECT)
+                .setPlaceholder('Select welcome text channel')
+                .setChannelTypes([ChannelType.GuildText])
+                .setMinValues(1)
+                .setMaxValues(1);
 
-            const clanInput = new TextInputBuilder()
-                .setCustomId('clan_name')
-                .setLabel('Clan name')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true);
+            const logsChannelSelect = new ChannelSelectMenuBuilder()
+                .setCustomId(SETUP_LOGS_CHANNEL_SELECT)
+                .setPlaceholder('Select optional logs channel')
+                .setChannelTypes([ChannelType.GuildText])
+                .setMinValues(0)
+                .setMaxValues(1);
 
-            const welcomeInput = new TextInputBuilder()
-                .setCustomId('welcome_channel')
-                .setLabel('Welcome channel mention or ID')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true);
+            const memberRoleSelect = new RoleSelectMenuBuilder()
+                .setCustomId(SETUP_MEMBER_ROLE_SELECT)
+                .setPlaceholder('Select member role')
+                .setMinValues(1)
+                .setMaxValues(1);
 
-            const memberRoleInput = new TextInputBuilder()
-                .setCustomId('member_role')
-                .setLabel('Member role mention or ID')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true);
+            const guestRoleSelect = new RoleSelectMenuBuilder()
+                .setCustomId(SETUP_GUEST_ROLE_SELECT)
+                .setPlaceholder('Select guest role')
+                .setMinValues(1)
+                .setMaxValues(1);
 
-            const guestRoleInput = new TextInputBuilder()
-                .setCustomId('guest_role')
-                .setLabel('Guest role mention or ID')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true);
+            const rows = [
+                new ActionRowBuilder().addComponents(welcomeChannelSelect),
+                new ActionRowBuilder().addComponents(logsChannelSelect),
+                new ActionRowBuilder().addComponents(memberRoleSelect),
+                new ActionRowBuilder().addComponents(guestRoleSelect),
+                new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(SETUP_WIZARD_CONTINUE)
+                        .setLabel('Continue (enter clan name)')
+                        .setStyle(ButtonStyle.Primary)
+                )
+            ];
 
-            const logsInput = new TextInputBuilder()
-                .setCustomId('logs_channel')
-                .setLabel('Server logs channel mention or ID (optional)')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(false);
+            // initialize temp store (persist to config so restarts don't lose progress)
+            const gid = interaction.guild?.id;
+            const uid = interaction.user.id;
+            cfg[gid].wizardTemp ??= {};
+            cfg[gid].wizardTemp[uid] ??= {};
+            saveConfig(cfg);
 
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(clanInput),
-                new ActionRowBuilder().addComponents(welcomeInput),
-                new ActionRowBuilder().addComponents(memberRoleInput),
-                new ActionRowBuilder().addComponents(guestRoleInput),
-                new ActionRowBuilder().addComponents(logsInput)
-            );
-
-            return interaction.showModal(modal);
+            return interaction.reply({ content: 'Select channels and roles for your clan setup, then click Continue.', components: rows, flags: 64 });
         }
 
         if (customId === SETUP_TICKET_WIZARD_BUTTON) {
@@ -1086,7 +1104,7 @@ client.on('interactionCreate', async interaction => {
 
             const typeRolesInput = new TextInputBuilder()
                 .setCustomId('ticket_type_roles')
-                .setLabel('Ticket type support role mentions/IDs (optional)')
+                .setLabel('Support roles (optional)')
                 .setStyle(TextInputStyle.Short)
                 .setRequired(false);
 
@@ -1098,6 +1116,21 @@ client.on('interactionCreate', async interaction => {
                 new ActionRowBuilder().addComponents(typeRolesInput)
             );
 
+            return interaction.showModal(modal);
+        }
+
+        if (customId === SETUP_WIZARD_CONTINUE) {
+            const modal = new ModalBuilder()
+                .setCustomId('setup_wizard_modal')
+                .setTitle('Clan Setup Wizard - Name');
+
+            const clanInput = new TextInputBuilder()
+                .setCustomId('clan_name')
+                .setLabel('Clan name')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            modal.addComponents(new ActionRowBuilder().addComponents(clanInput));
             return interaction.showModal(modal);
         }
 
@@ -1224,44 +1257,62 @@ client.on('interactionCreate', async interaction => {
 
     /* -------- MODAL -------- */
 
+    if (interaction.isChannelSelectMenu() || interaction.isRoleSelectMenu()) {
+        const gid = interaction.guild?.id;
+        const uid = interaction.user.id;
+        cfg[gid].wizardTemp ??= {};
+        cfg[gid].wizardTemp[uid] ??= {};
+
+        if (interaction.customId === SETUP_WELCOME_CHANNEL_SELECT) {
+            cfg[gid].wizardTemp[uid].welcomeChannel = interaction.values[0];
+        }
+
+        if (interaction.customId === SETUP_LOGS_CHANNEL_SELECT) {
+            cfg[gid].wizardTemp[uid].logsChannel = interaction.values[0] || null;
+        }
+
+        if (interaction.customId === SETUP_MEMBER_ROLE_SELECT) {
+            cfg[gid].wizardTemp[uid].memberRole = interaction.values[0];
+        }
+
+        if (interaction.customId === SETUP_GUEST_ROLE_SELECT) {
+            cfg[gid].wizardTemp[uid].guestRole = interaction.values[0];
+        }
+
+        // persist selections
+        saveConfig(cfg);
+
+        // Show a small summary and keep the components so user can adjust before continue
+        const summary = [];
+        if (cfg[gid].wizardTemp[uid].welcomeChannel) summary.push(`• Welcome: <#${cfg[gid].wizardTemp[uid].welcomeChannel}>`);
+        if (cfg[gid].wizardTemp[uid].memberRole) summary.push(`• Member role: <@&${cfg[gid].wizardTemp[uid].memberRole}>`);
+        if (cfg[gid].wizardTemp[uid].guestRole) summary.push(`• Guest role: <@&${cfg[gid].wizardTemp[uid].guestRole}>`);
+        if (cfg[gid].wizardTemp[uid].logsChannel) summary.push(`• Logs: <#${cfg[gid].wizardTemp[uid].logsChannel}>`);
+
+        return interaction.update({ content: summary.length ? `Saved selections:\n${summary.join('\n')}` : 'Selections cleared.', components: interaction.message.components, flags: 64 });
+    }
+
     if (interaction.isModalSubmit() && interaction.customId === 'setup_wizard_modal') {
         const clan = interaction.fields.getTextInputValue('clan_name').trim();
-        const welcomeChannelValue = interaction.fields.getTextInputValue('welcome_channel').trim();
-        const memberRoleValue = interaction.fields.getTextInputValue('member_role').trim();
-        const guestRoleValue = interaction.fields.getTextInputValue('guest_role').trim();
-        const logsChannelValue = interaction.fields.getTextInputValue('logs_channel').trim();
+        const gid = interaction.guild?.id;
+        const uid = interaction.user.id;
+        const stored = cfg[gid].wizardTemp?.[uid] || {};
 
-        const welcomeChannel = await resolveChannel(interaction.guild, welcomeChannelValue);
-        const memberRole = await resolveRole(interaction.guild, memberRoleValue);
-        const guestRole = await resolveRole(interaction.guild, guestRoleValue);
-        const logsChannel = logsChannelValue ? await resolveChannel(interaction.guild, logsChannelValue) : null;
+        const welcomeChannel = stored.welcomeChannel ? await resolveChannel(interaction.guild, `<#${stored.welcomeChannel}>`) : null;
+        const memberRole = stored.memberRole ? await resolveRole(interaction.guild, `<@&${stored.memberRole}>`) : null;
+        const guestRole = stored.guestRole ? await resolveRole(interaction.guild, `<@&${stored.guestRole}>`) : null;
+        const logsChannel = stored.logsChannel ? await resolveChannel(interaction.guild, `<#${stored.logsChannel}>`) : null;
 
         if (!welcomeChannel || welcomeChannel.type !== ChannelType.GuildText) {
-            return interaction.reply({
-                content: 'Could not resolve the welcome channel. Please provide a valid text channel mention or ID.',
-                ephemeral: true
-            });
+            return interaction.reply({ content: 'Please select a valid welcome text channel before continuing.', flags: 64 });
         }
 
         if (!memberRole) {
-            return interaction.reply({
-                content: 'Could not resolve the member role. Please provide a valid role mention or ID.',
-                ephemeral: true
-            });
+            return interaction.reply({ content: 'Please select a valid member role before continuing.', flags: 64 });
         }
 
         if (!guestRole) {
-            return interaction.reply({
-                content: 'Could not resolve the guest role. Please provide a valid role mention or ID.',
-                ephemeral: true
-            });
-        }
-
-        if (logsChannelValue && !logsChannel) {
-            return interaction.reply({
-                content: 'Could not resolve the logs channel. Please provide a valid text channel mention or ID, or leave it blank.',
-                ephemeral: true
-            });
+            return interaction.reply({ content: 'Please select a valid guest role before continuing.', flags: 64 });
         }
 
         cfg[gid].clan = clan;
@@ -1269,11 +1320,13 @@ client.on('interactionCreate', async interaction => {
         cfg[gid].memberRole = memberRole.id;
         cfg[gid].guestRole = guestRole.id;
         if (logsChannel) cfg[gid].serverLogsChannel = logsChannel.id;
+        // clear persisted temp selection
+        delete cfg[gid].wizardTemp?.[uid];
         saveConfig(cfg);
 
         return interaction.reply({
             content: `Clan setup complete!\n• Clan: **${clan}**\n• Welcome channel: ${welcomeChannel.toString()}\n• Member role: <@&${memberRole.id}>\n• Guest role: <@&${guestRole.id}>${logsChannel ? `\n• Logs channel: ${logsChannel.toString()}` : ''}`,
-            ephemeral: true
+            flags: 64
         });
     }
 

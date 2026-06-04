@@ -14,6 +14,7 @@ const {
     EmbedBuilder,
     ChannelSelectMenuBuilder,
     RoleSelectMenuBuilder,
+    StringSelectMenuBuilder,
     ChannelType
 } = require('discord.js');
 
@@ -66,6 +67,16 @@ const SETUP_GUEST_ROLE_SELECT = 'setup_guest_role_select';
 const SETUP_LOGS_CHANNEL_SELECT = 'setup_logs_channel_select';
 const SETUP_WIZARD_CONTINUE = 'setup_wizard_continue';
 const SETUP_TICKET_NOTIFY_ROLE_SELECT = 'setup_ticket_notify_role_select';
+const TICKET_MANAGE_CUSTOMIZE_TYPE_SELECT = 'ticket_manage_customize_type_select';
+const TICKET_MANAGE_CUSTOMIZE_TYPE_MODAL_PREFIX = 'ticket_manage_customize_type_modal_';
+const TICKET_MANAGE_ADD_TYPE = 'ticket_manage_add_type';
+const TICKET_MANAGE_SET_CATEGORY = 'ticket_manage_set_category';
+const TICKET_MANAGE_REMOVE_CATEGORY = 'ticket_manage_remove_category';
+const TICKET_MANAGE_SET_SUPPORT = 'ticket_manage_set_support';
+const TICKET_MANAGE_CUSTOMIZE_TYPE = 'ticket_manage_customize_type';
+const TICKET_MANAGE_CUSTOMIZE_PANEL = 'ticket_manage_customize_panel';
+const TICKET_MANAGE_VIEW_TYPES = 'ticket_manage_view_types';
+const TICKET_CLAIM_BUTTON = 'claim_ticket';
 
 const DEFAULT_TICKET_PANEL_TITLE = 'Open a Support Ticket';
 const DEFAULT_TICKET_PANEL_DESC = 'Choose the ticket type that matches your issue. A new private channel will be created for you and the configured support roles.';
@@ -298,10 +309,10 @@ const closeTicketChannel = async (channel, supportRoleId) => {
     }
 };
 
-const buildTicketEmbed = (member, subject, supportRoleIds, typeLabel, notifyRoleId, customTitle = null, customMsg = null) => {
+const buildTicketEmbed = (member, subject, supportRoleNames, typeLabel, notifyRoleId, customTitle = null, customMsg = null) => {
     const title = customTitle?.replace('{type}', typeLabel) || DEFAULT_TICKET_EMBED_TITLE.replace('{type}', typeLabel);
     const description = customMsg?.replace('{subject}', subject) || DEFAULT_TICKET_EMBED_DESC.replace('{subject}', subject);
-    const supportAccess = supportRoleIds?.length ? supportRoleIds.map(id => `<@&${id}>`).join(', ') : 'No role access configured';
+    const supportAccess = supportRoleNames?.length ? supportRoleNames.join(', ') : 'No support roles configured';
 
     return new EmbedBuilder()
         .setTitle(title)
@@ -358,24 +369,35 @@ const buildSetupTicketWizardMessage = (guildCfg = {}) => {
         // Show management buttons if configured
         buttons.push(
             new ButtonBuilder()
-                .setCustomId(SETUP_TICKET_WIZARD_BUTTON)
-                .setLabel('⚙️ Update Setup')
+                .setCustomId(TICKET_MANAGE_SET_CATEGORY)
+                .setLabel('Add / Update Category')
                 .setStyle(ButtonStyle.Primary),
             new ButtonBuilder()
-                .setCustomId('ticket_manage_add_type')
-                .setLabel('➕ Add Type')
+                .setCustomId(TICKET_MANAGE_REMOVE_CATEGORY)
+                .setLabel('Remove Category')
+                .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+                .setCustomId(TICKET_MANAGE_SET_SUPPORT)
+                .setLabel('Set Support Role')
+                .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+                .setCustomId(TICKET_MANAGE_ADD_TYPE)
+                .setLabel('Add Ticket Type')
                 .setStyle(ButtonStyle.Success),
             new ButtonBuilder()
-                .setCustomId('ticket_manage_customize_type')
-                .setLabel('✏️ Customize Type')
+                .setCustomId(TICKET_MANAGE_CUSTOMIZE_TYPE)
+                .setLabel('Customize Ticket Info')
+                .setStyle(ButtonStyle.Secondary)
+        );
+
+        buttons.push(
+            new ButtonBuilder()
+                .setCustomId(TICKET_MANAGE_CUSTOMIZE_PANEL)
+                .setLabel('Customize Panel')
                 .setStyle(ButtonStyle.Secondary),
             new ButtonBuilder()
-                .setCustomId('ticket_manage_customize_panel')
-                .setLabel('🎨 Panel')
-                .setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder()
-                .setCustomId('ticket_manage_view_types')
-                .setLabel('📋 Types')
+                .setCustomId(TICKET_MANAGE_VIEW_TYPES)
+                .setLabel('View Ticket Types')
                 .setStyle(ButtonStyle.Secondary)
         );
     }
@@ -867,12 +889,6 @@ client.on('interactionCreate', async interaction => {
                 if (!perms?.has(PermissionFlagsBits.SendMessages)) {
                     return interaction.reply({
                         content: `❌ I don't have permission to send messages in ${channel.toString()}.`,
-                        flags: 64
-                    });
-                }
-                if (!perms?.has(PermissionFlagsBits.ManageMessages)) {
-                    return interaction.reply({
-                        content: `❌ I don't have permission to manage messages in ${channel.toString()}. (needed to pin)`,
                         flags: 64
                     });
                 }
@@ -1531,35 +1547,162 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        if (customId === 'ticket_manage_add_type') {
+        if (customId === TICKET_CLAIM_BUTTON) {
+            await interaction.reply({
+                content: `✅ Ticket claimed by <@${interaction.user.id}>.`,
+                flags: 64
+            }).catch(() => null);
+            await interaction.channel.send({ content: `🔧 Ticket claimed by <@${interaction.user.id}>.` }).catch(() => null);
+            return;
+        }
+
+        if (customId === TICKET_MANAGE_SET_CATEGORY) {
+            const row = new ActionRowBuilder().addComponents(
+                new ChannelSelectMenuBuilder()
+                    .setCustomId(SETUP_TICKET_CATEGORY_SELECT)
+                    .setPlaceholder('Select ticket category')
+                    .setChannelTypes([ChannelType.GuildCategory])
+                    .setMinValues(1)
+                    .setMaxValues(1)
+            );
             return interaction.reply({
-                content: 'Use `/ticket-type-add` to add a new ticket type.\n\n**Command:** `/ticket-type-add name: <name> description: <description> [support_roles: role1,role2] [notify_role: role]`',
+                content: 'Select a ticket category for new tickets.',
+                components: [row],
                 flags: 64
             });
         }
 
-        if (customId === 'ticket_manage_customize_type') {
+        if (customId === TICKET_MANAGE_REMOVE_CATEGORY) {
+            delete cfg[gid].ticketCategory;
+            saveConfig(cfg);
+            if (interaction.message) {
+                await interaction.message.edit(buildSetupTicketWizardMessage(cfg[gid])).catch(() => null);
+            }
             return interaction.reply({
-                content: 'Use `/ticket-type-customize` to customize what users see when they create a ticket.\n\n**Command:** `/ticket-type-customize name: <name> [embed_title: <title>] [embed_message: <message>]`\n\nUse `{type}` and `{subject}` placeholders in the embed message.',
+                content: 'Ticket category removed.',
                 flags: 64
             });
         }
 
-        if (customId === 'ticket_manage_customize_panel') {
+        if (customId === TICKET_MANAGE_SET_SUPPORT) {
+            const row = new ActionRowBuilder().addComponents(
+                new RoleSelectMenuBuilder()
+                    .setCustomId(SETUP_TICKET_SUPPORT_ROLE_SELECT)
+                    .setPlaceholder('Select default support role')
+                    .setMinValues(1)
+                    .setMaxValues(1)
+            );
             return interaction.reply({
-                content: 'Use `/ticket-panel-customize` to customize the ticket panel title and description.\n\n**Command:** `/ticket-panel-customize title: <title> description: <description>`',
+                content: 'Select the default support role for tickets.',
+                components: [row],
                 flags: 64
             });
         }
 
-        if (customId === 'ticket_manage_view_types') {
-            const gid = interaction.guild?.id;
+        if (customId === TICKET_MANAGE_ADD_TYPE) {
+            const modal = new ModalBuilder()
+                .setCustomId('ticket_manage_add_type_modal')
+                .setTitle('Add Ticket Type');
+
+            const nameInput = new TextInputBuilder()
+                .setCustomId('ticket_type_name')
+                .setLabel('Ticket type name')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            const descInput = new TextInputBuilder()
+                .setCustomId('ticket_type_desc')
+                .setLabel('Ticket description')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true);
+
+            const supportInput = new TextInputBuilder()
+                .setCustomId('ticket_type_support_roles')
+                .setLabel('Support roles (mentions or IDs)')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(false);
+
+            const notifyInput = new TextInputBuilder()
+                .setCustomId('ticket_type_notify_role')
+                .setLabel('Notify role (mention or ID)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(false);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(nameInput),
+                new ActionRowBuilder().addComponents(descInput),
+                new ActionRowBuilder().addComponents(supportInput),
+                new ActionRowBuilder().addComponents(notifyInput)
+            );
+
+            return interaction.showModal(modal);
+        }
+
+        if (customId === TICKET_MANAGE_CUSTOMIZE_TYPE) {
             const ticketTypes = cfg[gid]?.ticketTypes || {};
             const entries = Object.entries(ticketTypes);
 
             if (!entries.length) {
                 return interaction.reply({
-                    content: 'No ticket types are configured yet. Use `/ticket-type-add` to create one.',
+                    content: 'No ticket types are configured yet. Add one first.',
+                    flags: 64
+                });
+            }
+
+            const options = entries.map(([typeId, type]) => ({
+                label: type.label || typeId,
+                value: typeId,
+                description: type.description?.slice(0, 100) || undefined
+            }));
+
+            const row = new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId(TICKET_MANAGE_CUSTOMIZE_TYPE_SELECT)
+                    .setPlaceholder('Select a ticket type to customize')
+                    .setMinValues(1)
+                    .setMaxValues(1)
+                    .addOptions(options)
+            );
+
+            return interaction.reply({
+                content: 'Choose the ticket type you want to customize.',
+                components: [row],
+                flags: 64
+            });
+        }
+
+        if (customId === TICKET_MANAGE_CUSTOMIZE_PANEL) {
+            const modal = new ModalBuilder()
+                .setCustomId('ticket_manage_customize_panel_modal')
+                .setTitle('Customize Ticket Panel');
+
+            const titleInput = new TextInputBuilder()
+                .setCustomId('ticket_panel_title')
+                .setLabel('Panel title')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(false);
+
+            const descInput = new TextInputBuilder()
+                .setCustomId('ticket_panel_description')
+                .setLabel('Panel description')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(false);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(titleInput),
+                new ActionRowBuilder().addComponents(descInput)
+            );
+
+            return interaction.showModal(modal);
+        }
+
+        if (customId === TICKET_MANAGE_VIEW_TYPES) {
+            const ticketTypes = cfg[gid]?.ticketTypes || {};
+            const entries = Object.entries(ticketTypes);
+
+            if (!entries.length) {
+                return interaction.reply({
+                    content: 'No ticket types are configured yet. Use the wizard or /ticket-type-add to create one.',
                     flags: 64
                 });
             }
@@ -1625,7 +1768,7 @@ client.on('interactionCreate', async interaction => {
 
     /* -------- MODAL -------- */
 
-    if (interaction.isChannelSelectMenu() || interaction.isRoleSelectMenu()) {
+    if (interaction.isChannelSelectMenu() || interaction.isRoleSelectMenu() || interaction.isStringSelectMenu()) {
         const gid = interaction.guild?.id;
         const uid = interaction.user.id;
         cfg[gid].wizardTemp ??= {};
@@ -1654,13 +1797,29 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.customId === SETUP_TICKET_CATEGORY_SELECT) {
-            cfg[gid].ticketWizardTemp[uid].category = interaction.values[0];
-            cfg[gid].ticketWizardTemp[uid].timestamp = Date.now();
+            cfg[gid].ticketCategory = interaction.values[0];
+            saveConfig(cfg);
+            const panel = cfg[gid].ticketSetupWizardPanel;
+            if (panel?.channelId && panel?.messageId) {
+                const panelChannel = await interaction.guild.channels.fetch(panel.channelId).catch(() => null);
+                if (panelChannel) {
+                    const panelMessage = await panelChannel.messages.fetch(panel.messageId).catch(() => null);
+                    if (panelMessage) await panelMessage.edit(buildSetupTicketWizardMessage(cfg[gid])).catch(() => null);
+                }
+            }
         }
 
         if (interaction.customId === SETUP_TICKET_SUPPORT_ROLE_SELECT) {
-            cfg[gid].ticketWizardTemp[uid].defaultSupportRole = interaction.values[0];
-            cfg[gid].ticketWizardTemp[uid].timestamp = Date.now();
+            cfg[gid].ticketSupportRole = interaction.values[0];
+            saveConfig(cfg);
+            const panel = cfg[gid].ticketSetupWizardPanel;
+            if (panel?.channelId && panel?.messageId) {
+                const panelChannel = await interaction.guild.channels.fetch(panel.channelId).catch(() => null);
+                if (panelChannel) {
+                    const panelMessage = await panelChannel.messages.fetch(panel.messageId).catch(() => null);
+                    if (panelMessage) await panelMessage.edit(buildSetupTicketWizardMessage(cfg[gid])).catch(() => null);
+                }
+            }
         }
 
         if (interaction.customId === SETUP_TICKET_TYPE_SUPPORTS_SELECT) {
@@ -1668,23 +1827,41 @@ client.on('interactionCreate', async interaction => {
             cfg[gid].ticketWizardTemp[uid].timestamp = Date.now();
         }
 
-        saveConfig(cfg);
+        if (interaction.customId === TICKET_MANAGE_CUSTOMIZE_TYPE_SELECT) {
+            const typeId = interaction.values[0];
+            const ticketType = cfg[gid]?.ticketTypes?.[typeId];
+            if (!ticketType) {
+                return interaction.reply({ content: 'Selected ticket type not found.', flags: 64 });
+            }
 
-        const summary = [];
-        if (interaction.customId.startsWith('setup_ticket_')) {
-            const stored = cfg[gid].ticketWizardTemp[uid];
-            if (stored.category) summary.push(`• Category: <#${stored.category}>`);
-            if (stored.defaultSupportRole) summary.push(`• Default support: <@&${stored.defaultSupportRole}>`);
-            if (stored.typeSupportRoles?.length) summary.push(`• Type support roles: ${stored.typeSupportRoles.map(id => `<@&${id}>`).join(', ')}`);
-        } else {
-            const stored = cfg[gid].wizardTemp[uid];
-            if (stored.welcomeChannel) summary.push(`• Welcome: <#${stored.welcomeChannel}>`);
-            if (stored.memberRole) summary.push(`• Member role: <@&${stored.memberRole}>`);
-            if (stored.guestRole) summary.push(`• Guest role: <@&${stored.guestRole}>`);
-            if (stored.logsChannel) summary.push(`• Logs: <#${stored.logsChannel}>`);
+            const modal = new ModalBuilder()
+                .setCustomId(`${TICKET_MANAGE_CUSTOMIZE_TYPE_MODAL_PREFIX}${typeId}`)
+                .setTitle(`Customize ${ticketType.label}`);
+
+            const titleInput = new TextInputBuilder()
+                .setCustomId('ticket_type_custom_title')
+                .setLabel('Embed title (use {type})')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(false)
+                .setValue(ticketType.customTitle || '');
+
+            const msgInput = new TextInputBuilder()
+                .setCustomId('ticket_type_custom_message')
+                .setLabel('Embed message (use {subject})')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(false)
+                .setValue(ticketType.customMessage || '');
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(titleInput),
+                new ActionRowBuilder().addComponents(msgInput)
+            );
+
+            return interaction.showModal(modal);
         }
 
-        return interaction.update({ content: summary.length ? `Saved selections:\n${summary.join('\n')}` : 'Selections cleared.', components: interaction.message.components, flags: 64 });
+        saveConfig(cfg);
+        return interaction.update({ components: interaction.message.components, flags: 64 });
     }
 
     if (interaction.isModalSubmit() && interaction.customId === 'setup_wizard_modal') {
@@ -1820,6 +1997,95 @@ client.on('interactionCreate', async interaction => {
         });
     }
 
+    if (interaction.isModalSubmit() && interaction.customId === 'ticket_manage_add_type_modal') {
+        const gid = interaction.guild?.id;
+        const typeName = interaction.fields.getTextInputValue('ticket_type_name').trim();
+        const typeDesc = interaction.fields.getTextInputValue('ticket_type_desc').trim();
+        const supportRolesInput = interaction.fields.getTextInputValue('ticket_type_support_roles').trim();
+        const notifyRoleInput = interaction.fields.getTextInputValue('ticket_type_notify_role').trim();
+        const typeId = normalizeTicketTypeId(typeName);
+
+        if (!typeId) {
+            return interaction.reply({ content: 'Invalid ticket type name. Use letters or numbers.', flags: 64 });
+        }
+
+        cfg[gid].ticketTypes ??= {};
+        if (cfg[gid].ticketTypes[typeId]) {
+            return interaction.reply({ content: `A ticket type with that name already exists: ${typeName}`, flags: 64 });
+        }
+
+        const supportRoleIds = parseRoleIds(supportRolesInput || '');
+        const notifyRoleIds = parseRoleIds(notifyRoleInput || '');
+
+        cfg[gid].ticketTypes[typeId] = {
+            label: typeName,
+            description: typeDesc,
+            supportRoleIds,
+            notifyRoleId: notifyRoleIds[0] || null
+        };
+        saveConfig(cfg);
+
+        const panel = cfg[gid].ticketSetupWizardPanel;
+        if (panel?.channelId && panel?.messageId) {
+            const panelChannel = await interaction.guild.channels.fetch(panel.channelId).catch(() => null);
+            if (panelChannel) {
+                const panelMessage = await panelChannel.messages.fetch(panel.messageId).catch(() => null);
+                if (panelMessage) await panelMessage.edit(buildSetupTicketWizardMessage(cfg[gid])).catch(() => null);
+            }
+        }
+
+        return interaction.reply({ content: `✅ Added ticket type **${typeName}**.`, flags: 64 });
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId.startsWith(TICKET_MANAGE_CUSTOMIZE_TYPE_MODAL_PREFIX)) {
+        const gid = interaction.guild?.id;
+        const typeId = interaction.customId.slice(TICKET_MANAGE_CUSTOMIZE_TYPE_MODAL_PREFIX.length);
+        const ticketType = cfg[gid]?.ticketTypes?.[typeId];
+
+        if (!ticketType) {
+            return interaction.reply({ content: 'Ticket type not found.', flags: 64 });
+        }
+
+        const customTitle = interaction.fields.getTextInputValue('ticket_type_custom_title').trim();
+        const customMessage = interaction.fields.getTextInputValue('ticket_type_custom_message').trim();
+
+        if (customTitle) cfg[gid].ticketTypes[typeId].customTitle = customTitle;
+        if (customMessage) cfg[gid].ticketTypes[typeId].customMessage = customMessage;
+        saveConfig(cfg);
+
+        const panel = cfg[gid].ticketSetupWizardPanel;
+        if (panel?.channelId && panel?.messageId) {
+            const panelChannel = await interaction.guild.channels.fetch(panel.channelId).catch(() => null);
+            if (panelChannel) {
+                const panelMessage = await panelChannel.messages.fetch(panel.messageId).catch(() => null);
+                if (panelMessage) await panelMessage.edit(buildSetupTicketWizardMessage(cfg[gid])).catch(() => null);
+            }
+        }
+
+        return interaction.reply({ content: `✅ Ticket type **${ticketType.label}** custom embed saved.`, flags: 64 });
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId === 'ticket_manage_customize_panel_modal') {
+        const gid = interaction.guild?.id;
+        const title = interaction.fields.getTextInputValue('ticket_panel_title').trim();
+        const description = interaction.fields.getTextInputValue('ticket_panel_description').trim();
+
+        if (title) cfg[gid].ticketPanelTitle = title;
+        if (description) cfg[gid].ticketPanelDescription = description;
+        saveConfig(cfg);
+
+        const panel = cfg[gid].ticketSetupWizardPanel;
+        if (panel?.channelId && panel?.messageId) {
+            const panelChannel = await interaction.guild.channels.fetch(panel.channelId).catch(() => null);
+            if (panelChannel) {
+                const panelMessage = await panelChannel.messages.fetch(panel.messageId).catch(() => null);
+                if (panelMessage) await panelMessage.edit(buildSetupTicketWizardMessage(cfg[gid])).catch(() => null);
+            }
+        }
+
+        return interaction.reply({ content: '✅ Ticket panel customization saved.', flags: 64 });
+    }
+
     if (interaction.isModalSubmit() && interaction.customId.startsWith(TICKET_MODAL_PREFIX)) {
         const typeId = interaction.customId.slice(TICKET_MODAL_PREFIX.length);
         const ticketType = cfg[gid]?.ticketTypes?.[typeId];
@@ -1875,6 +2141,10 @@ client.on('interactionCreate', async interaction => {
 
         const ticketButtons = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
+                .setCustomId(TICKET_CLAIM_BUTTON)
+                .setLabel('Claim Ticket')
+                .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
                 .setCustomId(TICKET_CLOSE_BUTTON)
                 .setLabel('Close Ticket')
                 .setStyle(ButtonStyle.Danger),
@@ -1884,9 +2154,15 @@ client.on('interactionCreate', async interaction => {
                 .setStyle(ButtonStyle.Secondary)
         );
 
+        const supportRoleNames = [];
+        for (const roleId of supportRoleIds) {
+            const role = await getGuildRole(interaction.guild, roleId);
+            supportRoleNames.push(role ? role.name : roleId);
+        }
+
         await ticketChannel.send({
             content: `${ticketType.notifyRoleId ? `<@&${ticketType.notifyRoleId}> ` : ''}A new **${ticketType.label}** ticket has been opened by <@${interaction.user.id}>.\nSubject: ${subject}`,
-            embeds: [buildTicketEmbed(interaction.user, subject, supportRoleIds, ticketType.label, ticketType.notifyRoleId, ticketType.customTitle, ticketType.customMessage)],
+            embeds: [buildTicketEmbed(interaction.user, subject, supportRoleNames, ticketType.label, ticketType.notifyRoleId, ticketType.customTitle, ticketType.customMessage)],
             components: [ticketButtons]
         }).catch(() => null);
 

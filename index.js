@@ -11,7 +11,8 @@ const {
     ModalBuilder,
     TextInputBuilder,
     TextInputStyle,
-    EmbedBuilder
+    EmbedBuilder,
+    ChannelType
 } = require('discord.js');
 
 const client = new Client({
@@ -34,6 +35,12 @@ const saveConfig = (d) =>
 
 const DEFAULT_SEARCHING_MESSAGE = '🔎 Searching RuneScape name...';
 const DEFAULT_WELCOME_REPLY = 'Welcome to the server!';
+const TICKET_TYPE_BUTTON_PREFIX = 'ticket_type_';
+const TICKET_CLOSE_BUTTON = 'close_ticket';
+const TICKET_DELETE_BUTTON = 'delete_ticket';
+const TICKET_MODAL_PREFIX = 'ticket_modal_';
+const SETUP_WIZARD_BUTTON = 'setup_wizard_start';
+const SETUP_TICKET_WIZARD_BUTTON = 'setup_ticket_wizard_start';
 
 const getGuildConfig = (cfg, gid) => {
     if (!gid) return null;
@@ -103,6 +110,221 @@ const buildVerificationEmbed = (member, rsn, inClan, clan, clanRank, addedRoleNa
             { name: 'Role', value: addedRoleName ? `**${addedRoleName}**` : 'No role assigned', inline: true }
         )
         .setTimestamp();
+};
+
+const normalizeTicketName = username =>
+    `ticket-${username.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 18)}-${Date.now() % 10000}`;
+
+const normalizeTicketTypeId = name =>
+    name.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 16);
+
+const chunkArray = (items, size) => {
+    const chunks = [];
+    for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+    return chunks;
+};
+
+const parseRoleIds = input => {
+    if (!input) return [];
+    const ids = new Set();
+    const matches = [...input.matchAll(/<@&?(\d+)>|\d+/g)];
+    for (const match of matches) {
+        if (match[1]) ids.add(match[1]);
+    }
+    return [...ids];
+};
+
+const parseChannelIds = input => {
+    if (!input) return [];
+    const ids = new Set();
+    const matches = [...input.matchAll(/<#(\d+)>|\d+/g)];
+    for (const match of matches) {
+        if (match[1]) ids.add(match[1]);
+    }
+    return [...ids];
+};
+
+const resolveChannel = async (guild, value) => {
+    if (!value) return null;
+    const match = value.match(/<#?(\d+)>?/);
+    if (!match) return null;
+    return guild.channels.cache.get(match[1]) || await guild.channels.fetch(match[1]).catch(() => null);
+};
+
+const resolveRole = async (guild, value) => {
+    if (!value) return null;
+    const match = value.match(/<@&?(\d+)>?/);
+    if (!match) return null;
+    return guild.roles.cache.get(match[1]) || await guild.roles.fetch(match[1]).catch(() => null);
+};
+
+const buildTicketPanelMessage = (ticketTypes) => {
+    const buttons = Object.entries(ticketTypes || {}).map(([typeId, type]) =>
+        new ButtonBuilder()
+            .setCustomId(`${TICKET_TYPE_BUTTON_PREFIX}${typeId}`)
+            .setLabel(type.label || typeId)
+            .setStyle(ButtonStyle.Primary)
+    );
+
+    const rows = chunkArray(buttons, 5).map(buttonRow =>
+        new ActionRowBuilder().addComponents(buttonRow)
+    );
+
+    const embed = new EmbedBuilder()
+        .setTitle('Open a Support Ticket')
+        .setDescription('Choose the ticket type that matches your issue. A new private channel will be created for you and the configured support roles.')
+        .setColor(0x5865F2)
+        .addFields(
+            { name: 'How it works', value: '1) Click a button\n2) Describe your issue\n3) A private channel is created with support access', inline: false },
+            { name: 'Ticket types', value: Object.values(ticketTypes).map(type => `• **${type.label}**: ${type.description}`).join('\n') || 'No ticket types configured', inline: false }
+        );
+
+    return {
+        embeds: [embed],
+        components: rows
+    };
+};
+
+const createTicketChannel = async (guild, categoryId, ticketName, member, supportRoleIds = []) => {
+    if (!categoryId) return null;
+
+    const category = guild.channels.cache.get(categoryId) || await guild.channels.fetch(categoryId).catch(() => null);
+    if (!category || category.type !== ChannelType.GuildCategory) return null;
+
+    const overwrites = [
+        {
+            id: guild.roles.everyone.id,
+            deny: [PermissionFlagsBits.ViewChannel]
+        },
+        {
+            id: member.id,
+            allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory,
+                PermissionFlagsBits.AttachFiles
+            ]
+        }
+    ];
+
+    const validRoleIds = [];
+    for (const roleId of supportRoleIds || []) {
+        const role = guild.roles.cache.get(roleId) || await guild.roles.fetch(roleId).catch(() => null);
+        if (role) validRoleIds.push(role.id);
+    }
+
+    for (const roleId of [...new Set(validRoleIds)]) {
+        overwrites.push({
+            id: roleId,
+            allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory
+            ]
+        });
+    }
+
+    return guild.channels.create({
+        name: ticketName,
+        type: ChannelType.GuildText,
+        parent: category.id,
+        permissionOverwrites: overwrites
+    }).catch(() => null);
+};
+
+const closeTicketChannel = async (channel, supportRoleId) => {
+    if (!channel || channel.type !== ChannelType.GuildText) return false;
+
+    const overwrites = [
+        {
+            id: channel.guild.roles.everyone.id,
+            deny: [PermissionFlagsBits.ViewChannel]
+        }
+    ];
+
+    if (supportRoleId) {
+        overwrites.push({
+            id: supportRoleId,
+            allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory
+            ]
+        });
+    }
+
+    try {
+        await channel.permissionOverwrites.set(overwrites);
+        await channel.send({ content: '✅ This ticket has been closed. Support may reopen it or archive it later.' }).catch(() => null);
+        return true;
+    } catch (err) {
+        console.error('Close ticket error:', err);
+        return false;
+    }
+};
+
+const buildTicketEmbed = (member, subject, supportRoleIds, typeLabel, notifyRoleId) => {
+    const supportAccess = supportRoleIds?.length ? supportRoleIds.map(id => `<@&${id}>`).join(', ') : 'No role access configured';
+
+    return new EmbedBuilder()
+        .setTitle(`Ticket: ${typeLabel}`)
+        .setDescription(subject || 'No subject provided.')
+        .addFields(
+            { name: 'Requester', value: `<@${member.id}>`, inline: true },
+            { name: 'Support access', value: supportAccess, inline: true },
+            { name: 'Notify role', value: notifyRoleId ? `<@&${notifyRoleId}>` : 'None', inline: true }
+        )
+        .setTimestamp();
+};
+
+const buildTicketPanel = (ticketTypes) => buildTicketPanelMessage(ticketTypes);
+
+const buildSetupWizardMessage = () => {
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(SETUP_WIZARD_BUTTON)
+            .setLabel('Start Clan Setup Wizard')
+            .setStyle(ButtonStyle.Success)
+    );
+
+    const embed = new EmbedBuilder()
+        .setTitle('Clan Setup Wizard')
+        .setDescription('Click the button below to configure your clan settings in one place. This wizard saves the clan name, welcome channel, member/guest roles, and optional log channel.')
+        .setColor(0x00B0F4)
+        .addFields(
+            { name: 'Step 1', value: 'Click the button to open the setup modal.', inline: false },
+            { name: 'Step 2', value: 'Provide the clan name, welcome channel, member role, guest role, and optional logs channel.', inline: false },
+            { name: 'Step 3', value: 'The bot will save your settings and confirm them.', inline: false }
+        );
+
+    return {
+        embeds: [embed],
+        components: [row]
+    };
+};
+
+const buildSetupTicketWizardMessage = () => {
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(SETUP_TICKET_WIZARD_BUTTON)
+            .setLabel('Start Ticket Setup Wizard')
+            .setStyle(ButtonStyle.Success)
+    );
+
+    const embed = new EmbedBuilder()
+        .setTitle('Ticket Setup Wizard')
+        .setDescription('Click the button below to configure your ticket category, default support role, and an initial ticket type.')
+        .setColor(0x57F287)
+        .addFields(
+            { name: 'Step 1', value: 'Click the button to open the ticket setup modal.', inline: false },
+            { name: 'Step 2', value: 'Provide the ticket category, default support role, ticket type name, description, and optional support roles.', inline: false },
+            { name: 'Step 3', value: 'Use /create-ticket-panel to publish the ticket type panel once setup is complete.', inline: false }
+        );
+
+    return {
+        embeds: [embed],
+        components: [row]
+    };
 };
 
 /* -------------------- RS FUNCTIONS -------------------- */
@@ -203,6 +425,96 @@ client.once('ready', async () => {
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
         new SlashCommandBuilder()
+        .setName('setup-wizard')
+        .setDescription('Create or refresh a fixed clan setup panel')
+        .addChannelOption(o =>
+            o.setName('channel')
+            .setDescription('Channel to post the setup panel in')
+            .setRequired(false)
+        )
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+        new SlashCommandBuilder()
+        .setName('setup-ticket-wizard')
+        .setDescription('Create or refresh a fixed ticket setup panel')
+        .addChannelOption(o =>
+            o.setName('channel')
+            .setDescription('Channel to post the ticket setup panel in')
+            .setRequired(false)
+        )
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+        new SlashCommandBuilder()
+        .setName('setup-ticket-category')
+        .setDescription('Set the ticket category for new tickets')
+        .addChannelOption(o =>
+            o.setName('category')
+            .setDescription('Ticket category channel')
+            .setRequired(true)
+        )
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+        new SlashCommandBuilder()
+        .setName('setup-ticket-support-role')
+        .setDescription('Set a global fallback role for tickets')
+        .addRoleOption(o =>
+            o.setName('role')
+            .setDescription('Fallback support role')
+            .setRequired(true)
+        )
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+        new SlashCommandBuilder()
+        .setName('ticket-type-add')
+        .setDescription('Add a ticket type for the ticket panel')
+        .addStringOption(o =>
+            o.setName('name')
+            .setDescription('Ticket type name')
+            .setRequired(true)
+        )
+        .addStringOption(o =>
+            o.setName('description')
+            .setDescription('Short description for this ticket type')
+            .setRequired(true)
+        )
+        .addStringOption(o =>
+            o.setName('support_roles')
+            .setDescription('Comma-separated role mentions/IDs that should access this ticket')
+            .setRequired(false)
+        )
+        .addRoleOption(o =>
+            o.setName('notify_role')
+            .setDescription('Optional role to mention in the ticket channel')
+            .setRequired(false)
+        )
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+        new SlashCommandBuilder()
+        .setName('ticket-type-remove')
+        .setDescription('Remove a configured ticket type')
+        .addStringOption(o =>
+            o.setName('name')
+            .setDescription('Ticket type name to remove')
+            .setRequired(true)
+        )
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+        new SlashCommandBuilder()
+        .setName('ticket-types')
+        .setDescription('List configured ticket types')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+        new SlashCommandBuilder()
+        .setName('create-ticket-panel')
+        .setDescription('Post or refresh the ticket type panel in this channel')
+        .addChannelOption(o =>
+            o.setName('channel')
+            .setDescription('Channel to post the ticket panel in')
+            .setRequired(false)
+        )
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+        new SlashCommandBuilder()
         .setName('verify-member')
         .setDescription('Verify a member using their RSN and update nickname/roles')
         .addUserOption(o =>
@@ -215,6 +527,11 @@ client.once('ready', async () => {
             .setDescription('The RuneScape name to verify')
             .setRequired(true)
         )
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+        new SlashCommandBuilder()
+        .setName('close-ticket')
+        .setDescription('Close the current ticket channel')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
         new SlashCommandBuilder()
@@ -296,6 +613,283 @@ client.on('interactionCreate', async interaction => {
 
             return interaction.reply({
                 content: 'Server logs channel set',
+                ephemeral: true
+            });
+        }
+
+        if (interaction.commandName === 'setup-wizard') {
+            const channel = interaction.options.getChannel('channel') || interaction.channel;
+            if (!channel || channel.type !== ChannelType.GuildText) {
+                return interaction.reply({
+                    content: 'Please choose a text channel to post the setup panel in.',
+                    ephemeral: true
+                });
+            }
+
+            const panelData = buildSetupWizardMessage();
+            cfg[gid].setupWizardPanel ??= {};
+            let panelMessage = null;
+
+            try {
+                if (cfg[gid].setupWizardPanel.channelId && cfg[gid].setupWizardPanel.messageId) {
+                    const panelChannel = await interaction.guild.channels.fetch(cfg[gid].setupWizardPanel.channelId).catch(() => null);
+                    if (panelChannel) {
+                        panelMessage = await panelChannel.messages.fetch(cfg[gid].setupWizardPanel.messageId).catch(() => null);
+                    }
+                }
+
+                if (panelMessage) {
+                    await panelMessage.edit(panelData);
+                } else {
+                    panelMessage = await channel.send(panelData);
+                }
+
+                if (!panelMessage.pinned) {
+                    await panelMessage.pin().catch(() => null);
+                }
+
+                cfg[gid].setupWizardPanel = {
+                    channelId: channel.id,
+                    messageId: panelMessage.id
+                };
+                saveConfig(cfg);
+            } catch (err) {
+                console.error('Setup wizard panel error:', err);
+                return interaction.reply({
+                    content: 'Unable to post the setup wizard panel. Check permissions and channel settings.',
+                    ephemeral: true
+                });
+            }
+
+            return interaction.reply({
+                content: `Setup wizard panel posted in ${channel.toString()}.`,
+                ephemeral: true
+            });
+        }
+
+        if (interaction.commandName === 'setup-ticket-wizard') {
+            const channel = interaction.options.getChannel('channel') || interaction.channel;
+            if (!channel || channel.type !== ChannelType.GuildText) {
+                return interaction.reply({
+                    content: 'Please choose a text channel to post the ticket setup panel in.',
+                    ephemeral: true
+                });
+            }
+
+            const panelData = buildSetupTicketWizardMessage();
+            cfg[gid].ticketSetupWizardPanel ??= {};
+            let panelMessage = null;
+
+            try {
+                if (cfg[gid].ticketSetupWizardPanel.channelId && cfg[gid].ticketSetupWizardPanel.messageId) {
+                    const panelChannel = await interaction.guild.channels.fetch(cfg[gid].ticketSetupWizardPanel.channelId).catch(() => null);
+                    if (panelChannel) {
+                        panelMessage = await panelChannel.messages.fetch(cfg[gid].ticketSetupWizardPanel.messageId).catch(() => null);
+                    }
+                }
+
+                if (panelMessage) {
+                    await panelMessage.edit(panelData);
+                } else {
+                    panelMessage = await channel.send(panelData);
+                }
+
+                if (!panelMessage.pinned) {
+                    await panelMessage.pin().catch(() => null);
+                }
+
+                cfg[gid].ticketSetupWizardPanel = {
+                    channelId: channel.id,
+                    messageId: panelMessage.id
+                };
+                saveConfig(cfg);
+            } catch (err) {
+                console.error('Ticket setup wizard panel error:', err);
+                return interaction.reply({
+                    content: 'Unable to post the ticket setup wizard panel. Check permissions and channel settings.',
+                    ephemeral: true
+                });
+            }
+
+            return interaction.reply({
+                content: `Ticket setup wizard panel posted in ${channel.toString()}.`,
+                ephemeral: true
+            });
+        }
+
+        if (interaction.commandName === 'setup-ticket-category') {
+            const category = interaction.options.getChannel('category');
+            if (category.type !== ChannelType.GuildCategory) {
+                return interaction.reply({
+                    content: 'Please select a category channel for tickets.',
+                    ephemeral: true
+                });
+            }
+
+            cfg[gid].ticketCategory = category.id;
+            saveConfig(cfg);
+
+            return interaction.reply({
+                content: `Ticket category set to ${category.name}`,
+                ephemeral: true
+            });
+        }
+
+        if (interaction.commandName === 'setup-ticket-support-role') {
+            cfg[gid].ticketSupportRole = interaction.options.getRole('role').id;
+            saveConfig(cfg);
+
+            return interaction.reply({
+                content: 'Fallback ticket support role set',
+                ephemeral: true
+            });
+        }
+
+        if (interaction.commandName === 'ticket-type-add') {
+            const name = interaction.options.getString('name');
+            const description = interaction.options.getString('description');
+            const supportRoles = interaction.options.getString('support_roles') || '';
+            const notifyRole = interaction.options.getRole('notify_role');
+
+            const typeId = normalizeTicketTypeId(name);
+            if (!typeId) {
+                return interaction.reply({
+                    content: 'Invalid ticket type name. Use letters or numbers.',
+                    ephemeral: true
+                });
+            }
+
+            cfg[gid].ticketTypes ??= {};
+            if (cfg[gid].ticketTypes[typeId]) {
+                return interaction.reply({
+                    content: `A ticket type with that name already exists: ${name}`,
+                    ephemeral: true
+                });
+            }
+
+            cfg[gid].ticketTypes[typeId] = {
+                label: name,
+                description,
+                supportRoleIds: parseRoleIds(supportRoles),
+                notifyRoleId: notifyRole?.id || null
+            };
+            saveConfig(cfg);
+
+            return interaction.reply({
+                content: `Added ticket type **${name}**. Use /create-ticket-panel to publish the panel.`,
+                ephemeral: true
+            });
+        }
+
+        if (interaction.commandName === 'ticket-type-remove') {
+            const name = interaction.options.getString('name');
+            const typeId = normalizeTicketTypeId(name);
+
+            if (!cfg[gid].ticketTypes?.[typeId]) {
+                return interaction.reply({
+                    content: `Ticket type not found: ${name}`,
+                    ephemeral: true
+                });
+            }
+
+            delete cfg[gid].ticketTypes[typeId];
+            saveConfig(cfg);
+
+            return interaction.reply({
+                content: `Removed ticket type **${name}**.`,
+                ephemeral: true
+            });
+        }
+
+        if (interaction.commandName === 'ticket-types') {
+            const ticketTypes = cfg[gid].ticketTypes || {};
+            const entries = Object.entries(ticketTypes);
+
+            if (!entries.length) {
+                return interaction.reply({
+                    content: 'No ticket types are configured yet.',
+                    ephemeral: true
+                });
+            }
+
+            return interaction.reply({
+                content: entries.map(([typeId, type]) =>
+                    `• **${type.label}** (${typeId})\n  ${type.description}\n  Access: ${type.supportRoleIds.length ? type.supportRoleIds.map(id => `<@&${id}>`).join(', ') : 'none'}${type.notifyRoleId ? `\n  Notify: <@&${type.notifyRoleId}>` : ''}`
+                ).join('\n\n'),
+                ephemeral: true
+            });
+        }
+
+        if (interaction.commandName === 'create-ticket-panel') {
+            const channel = interaction.options.getChannel('channel') || interaction.channel;
+            const ticketTypes = cfg[gid].ticketTypes || {};
+
+            if (!Object.keys(ticketTypes).length) {
+                return interaction.reply({
+                    content: 'You must configure at least one ticket type first with /ticket-type-add.',
+                    ephemeral: true
+                });
+            }
+
+            if (!channel || channel.type !== ChannelType.GuildText) {
+                return interaction.reply({
+                    content: 'Please select a text channel for the ticket panel.',
+                    ephemeral: true
+                });
+            }
+
+            const panelData = buildTicketPanelMessage(ticketTypes);
+            cfg[gid].ticketPanel ??= {};
+
+            try {
+                let panelMessage = null;
+                if (cfg[gid].ticketPanel.channelId && cfg[gid].ticketPanel.messageId) {
+                    const panelChannel = await interaction.guild.channels.fetch(cfg[gid].ticketPanel.channelId).catch(() => null);
+                    if (panelChannel) {
+                        panelMessage = await panelChannel.messages.fetch(cfg[gid].ticketPanel.messageId).catch(() => null);
+                    }
+                }
+
+                if (panelMessage) {
+                    await panelMessage.edit(panelData);
+                } else {
+                    panelMessage = await channel.send(panelData);
+                }
+
+                try {
+                    if (!panelMessage.pinned) {
+                        await panelMessage.pin();
+                    }
+                } catch (err) {
+                    // ignore pin failures due to permissions
+                }
+
+                cfg[gid].ticketPanel = {
+                    channelId: channel.id,
+                    messageId: panelMessage.id
+                };
+                saveConfig(cfg);
+            } catch (err) {
+                console.error('Ticket panel error:', err);
+                return interaction.reply({
+                    content: 'Unable to post the ticket panel. Check permissions and channel settings.',
+                    ephemeral: true
+                });
+            }
+
+            return interaction.reply({
+                content: `Ticket panel posted in ${channel.toString()}.`,
+                ephemeral: true
+            });
+        }
+
+        if (interaction.commandName === 'close-ticket') {
+            const channel = interaction.channel;
+            const supportRoleId = guildCfg?.ticketSupportRole;
+            const closed = await closeTicketChannel(channel, supportRoleId);
+
+            return interaction.reply({
+                content: closed ? '✅ Ticket closed.' : 'Unable to close this channel as a ticket.',
                 ephemeral: true
             });
         }
@@ -412,38 +1006,403 @@ client.on('interactionCreate', async interaction => {
 
     /* -------- BUTTON -------- */
 
-    if (interaction.isButton() && interaction.customId === 'add_rsn') {
+    if (interaction.isButton()) {
+        const customId = interaction.customId;
 
-        const guildCfg = cfg[gid];
-        const messageId = interaction.message?.id;
-        const welcomeEntries = guildCfg?.welcomeMessages || {};
-        const targetEntry = Object.entries(welcomeEntries).find(([, value]) => value.messageId === messageId);
+        if (customId === SETUP_WIZARD_BUTTON) {
+            const modal = new ModalBuilder()
+                .setCustomId('setup_wizard_modal')
+                .setTitle('Clan Setup Wizard');
 
-        if (targetEntry && targetEntry[0] !== interaction.user.id) {
+            const clanInput = new TextInputBuilder()
+                .setCustomId('clan_name')
+                .setLabel('Clan name')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            const welcomeInput = new TextInputBuilder()
+                .setCustomId('welcome_channel')
+                .setLabel('Welcome channel mention or ID')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            const memberRoleInput = new TextInputBuilder()
+                .setCustomId('member_role')
+                .setLabel('Member role mention or ID')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            const guestRoleInput = new TextInputBuilder()
+                .setCustomId('guest_role')
+                .setLabel('Guest role mention or ID')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            const logsInput = new TextInputBuilder()
+                .setCustomId('logs_channel')
+                .setLabel('Server logs channel mention or ID (optional)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(false);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(clanInput),
+                new ActionRowBuilder().addComponents(welcomeInput),
+                new ActionRowBuilder().addComponents(memberRoleInput),
+                new ActionRowBuilder().addComponents(guestRoleInput),
+                new ActionRowBuilder().addComponents(logsInput)
+            );
+
+            return interaction.showModal(modal);
+        }
+
+        if (customId === SETUP_TICKET_WIZARD_BUTTON) {
+            const modal = new ModalBuilder()
+                .setCustomId('setup_ticket_wizard_modal')
+                .setTitle('Ticket Setup Wizard');
+
+            const categoryInput = new TextInputBuilder()
+                .setCustomId('ticket_category')
+                .setLabel('Ticket category mention or ID')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            const fallbackRoleInput = new TextInputBuilder()
+                .setCustomId('default_support_role')
+                .setLabel('Default support role mention or ID')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            const typeNameInput = new TextInputBuilder()
+                .setCustomId('ticket_type_name')
+                .setLabel('Initial ticket type name')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            const typeDescInput = new TextInputBuilder()
+                .setCustomId('ticket_type_desc')
+                .setLabel('Ticket type description')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            const typeRolesInput = new TextInputBuilder()
+                .setCustomId('ticket_type_roles')
+                .setLabel('Ticket type support role mentions/IDs (optional)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(false);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(categoryInput),
+                new ActionRowBuilder().addComponents(fallbackRoleInput),
+                new ActionRowBuilder().addComponents(typeNameInput),
+                new ActionRowBuilder().addComponents(typeDescInput),
+                new ActionRowBuilder().addComponents(typeRolesInput)
+            );
+
+            return interaction.showModal(modal);
+        }
+
+        if (customId.startsWith(TICKET_TYPE_BUTTON_PREFIX)) {
+            const typeId = customId.slice(TICKET_TYPE_BUTTON_PREFIX.length);
+            const ticketType = cfg[gid]?.ticketTypes?.[typeId];
+            const categoryId = cfg[gid]?.ticketCategory;
+
+            if (!ticketType || !categoryId) {
+                return interaction.reply({
+                    content: 'That ticket type is no longer available or the ticket system is not configured.',
+                    ephemeral: true
+                });
+            }
+
+            cfg[gid].ticketChannels ??= {};
+            const existingTicketId = cfg[gid].ticketChannels[interaction.user.id];
+            if (existingTicketId) {
+                const existingChannel = await interaction.guild.channels.fetch(existingTicketId).catch(() => null);
+                if (existingChannel) {
+                    return interaction.reply({
+                        content: `You already have an open ticket: ${existingChannel.toString()}`,
+                        ephemeral: true
+                    });
+                }
+                delete cfg[gid].ticketChannels[interaction.user.id];
+                saveConfig(cfg);
+            }
+
+            const modal = new ModalBuilder()
+                .setCustomId(`${TICKET_MODAL_PREFIX}${typeId}`)
+                .setTitle(`Create ${ticketType.label}`);
+
+            const input = new TextInputBuilder()
+                .setCustomId('subject')
+                .setLabel('Briefly describe your issue')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            modal.addComponents(new ActionRowBuilder().addComponents(input));
+            return interaction.showModal(modal);
+        }
+
+        if (customId === TICKET_CLOSE_BUTTON) {
+            const channel = interaction.channel;
+            const supportRoleId = cfg[gid]?.ticketSupportRole;
+            const closed = await closeTicketChannel(channel, supportRoleId);
+
+            if (closed) {
+                if (cfg[gid]?.ticketChannels) {
+                    const ownerEntry = Object.entries(cfg[gid].ticketChannels).find(([, channelId]) => channelId === channel.id);
+                    if (ownerEntry) {
+                        delete cfg[gid].ticketChannels[ownerEntry[0]];
+                        saveConfig(cfg);
+                    }
+                }
+            }
+
             return interaction.reply({
-                content: 'This button is only for the user it was posted for. If you need access, please use your own welcome prompt or ask an admin.',
+                content: closed ? '✅ Ticket closed.' : 'Unable to close this channel as a ticket.',
                 ephemeral: true
             });
         }
 
-        const modal = new ModalBuilder()
-            .setCustomId('rsn_modal')
-            .setTitle('Add RSN');
+        if (customId === TICKET_DELETE_BUTTON) {
+            const channel = interaction.channel;
+            const ownerEntry = cfg[gid]?.ticketChannels ? Object.entries(cfg[gid].ticketChannels).find(([, channelId]) => channelId === channel.id) : null;
+            const ownerId = ownerEntry ? ownerEntry[0] : null;
+            const isOwner = ownerId === interaction.user.id;
+            const canDelete = isOwner || interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
 
-        const input = new TextInputBuilder()
-            .setCustomId('rsn')
-            .setLabel('RuneScape Name')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true);
+            if (!canDelete) {
+                return interaction.reply({
+                    content: 'Only the ticket owner or a moderator can delete this ticket.',
+                    ephemeral: true
+                });
+            }
 
-        modal.addComponents(
-            new ActionRowBuilder().addComponents(input)
-        );
+            if (cfg[gid]?.ticketChannels && ownerId) {
+                delete cfg[gid].ticketChannels[ownerId];
+                saveConfig(cfg);
+            }
 
-        return interaction.showModal(modal);
+            await interaction.reply({
+                content: 'Deleting ticket channel...',
+                ephemeral: true
+            }).catch(() => null);
+
+            await channel.delete('Ticket deleted by button').catch(() => null);
+            return;
+        }
+
+        if (customId === 'add_rsn') {
+
+            const guildCfg = cfg[gid];
+            const messageId = interaction.message?.id;
+            const welcomeEntries = guildCfg?.welcomeMessages || {};
+            const targetEntry = Object.entries(welcomeEntries).find(([, value]) => value.messageId === messageId);
+
+            if (targetEntry && targetEntry[0] !== interaction.user.id) {
+                return interaction.reply({
+                    content: 'This button is only for the user it was posted for. If you need access, please use your own welcome prompt or ask an admin.',
+                    ephemeral: true
+                });
+            }
+
+            const modal = new ModalBuilder()
+                .setCustomId('rsn_modal')
+                .setTitle('Add RSN');
+
+            const input = new TextInputBuilder()
+                .setCustomId('rsn')
+                .setLabel('RuneScape Name')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(input)
+            );
+
+            return interaction.showModal(modal);
+        }
     }
 
     /* -------- MODAL -------- */
+
+    if (interaction.isModalSubmit() && interaction.customId === 'setup_wizard_modal') {
+        const clan = interaction.fields.getTextInputValue('clan_name').trim();
+        const welcomeChannelValue = interaction.fields.getTextInputValue('welcome_channel').trim();
+        const memberRoleValue = interaction.fields.getTextInputValue('member_role').trim();
+        const guestRoleValue = interaction.fields.getTextInputValue('guest_role').trim();
+        const logsChannelValue = interaction.fields.getTextInputValue('logs_channel').trim();
+
+        const welcomeChannel = await resolveChannel(interaction.guild, welcomeChannelValue);
+        const memberRole = await resolveRole(interaction.guild, memberRoleValue);
+        const guestRole = await resolveRole(interaction.guild, guestRoleValue);
+        const logsChannel = logsChannelValue ? await resolveChannel(interaction.guild, logsChannelValue) : null;
+
+        if (!welcomeChannel || welcomeChannel.type !== ChannelType.GuildText) {
+            return interaction.reply({
+                content: 'Could not resolve the welcome channel. Please provide a valid text channel mention or ID.',
+                ephemeral: true
+            });
+        }
+
+        if (!memberRole) {
+            return interaction.reply({
+                content: 'Could not resolve the member role. Please provide a valid role mention or ID.',
+                ephemeral: true
+            });
+        }
+
+        if (!guestRole) {
+            return interaction.reply({
+                content: 'Could not resolve the guest role. Please provide a valid role mention or ID.',
+                ephemeral: true
+            });
+        }
+
+        if (logsChannelValue && !logsChannel) {
+            return interaction.reply({
+                content: 'Could not resolve the logs channel. Please provide a valid text channel mention or ID, or leave it blank.',
+                ephemeral: true
+            });
+        }
+
+        cfg[gid].clan = clan;
+        cfg[gid].welcomeChannel = welcomeChannel.id;
+        cfg[gid].memberRole = memberRole.id;
+        cfg[gid].guestRole = guestRole.id;
+        if (logsChannel) cfg[gid].serverLogsChannel = logsChannel.id;
+        saveConfig(cfg);
+
+        return interaction.reply({
+            content: `Clan setup complete!\n• Clan: **${clan}**\n• Welcome channel: ${welcomeChannel.toString()}\n• Member role: <@&${memberRole.id}>\n• Guest role: <@&${guestRole.id}>${logsChannel ? `\n• Logs channel: ${logsChannel.toString()}` : ''}`,
+            ephemeral: true
+        });
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId === 'setup_ticket_wizard_modal') {
+        const categoryValue = interaction.fields.getTextInputValue('ticket_category').trim();
+        const fallbackRoleValue = interaction.fields.getTextInputValue('default_support_role').trim();
+        const typeName = interaction.fields.getTextInputValue('ticket_type_name').trim();
+        const typeDesc = interaction.fields.getTextInputValue('ticket_type_desc').trim();
+        const typeRolesValue = interaction.fields.getTextInputValue('ticket_type_roles').trim();
+
+        const category = await resolveChannel(interaction.guild, categoryValue);
+        const fallbackRole = await resolveRole(interaction.guild, fallbackRoleValue);
+        const supportRoleIds = parseRoleIds(typeRolesValue);
+
+        if (!category || category.type !== ChannelType.GuildCategory) {
+            return interaction.reply({
+                content: 'Could not resolve the ticket category. Please provide a valid category mention or ID.',
+                ephemeral: true
+            });
+        }
+
+        if (!fallbackRole) {
+            return interaction.reply({
+                content: 'Could not resolve the default support role. Please provide a valid role mention or ID.',
+                ephemeral: true
+            });
+        }
+
+        const typeId = normalizeTicketTypeId(typeName);
+        if (!typeId) {
+            return interaction.reply({
+                content: 'Invalid ticket type name. Use letters or numbers.',
+                ephemeral: true
+            });
+        }
+
+        cfg[gid].ticketCategory = category.id;
+        cfg[gid].ticketSupportRole = fallbackRole.id;
+        cfg[gid].ticketTypes ??= {};
+        cfg[gid].ticketTypes[typeId] = {
+            label: typeName,
+            description: typeDesc,
+            supportRoleIds,
+            notifyRoleId: null
+        };
+        saveConfig(cfg);
+
+        return interaction.reply({
+            content: `Ticket setup complete!\n• Category: ${category.toString()}\n• Default support role: <@&${fallbackRole.id}>\n• Ticket type added: **${typeName}**\nYou can now run /create-ticket-panel to publish the ticket panel, or add more ticket types with /ticket-type-add.`,
+            ephemeral: true
+        });
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId.startsWith(TICKET_MODAL_PREFIX)) {
+        const typeId = interaction.customId.slice(TICKET_MODAL_PREFIX.length);
+        const ticketType = cfg[gid]?.ticketTypes?.[typeId];
+        const subject = interaction.fields.getTextInputValue('subject').trim();
+        const guildCfg = cfg[gid];
+        const categoryId = guildCfg?.ticketCategory;
+
+        if (!ticketType || !categoryId) {
+            return interaction.reply({
+                content: 'That ticket type or the ticket system configuration is no longer available.',
+                ephemeral: true
+            });
+        }
+
+        cfg[gid].ticketChannels ??= {};
+        const existingTicketId = cfg[gid].ticketChannels[interaction.user.id];
+        if (existingTicketId) {
+            const existingChannel = await interaction.guild.channels.fetch(existingTicketId).catch(() => null);
+            if (existingChannel) {
+                return interaction.reply({
+                    content: `You already have an open ticket: ${existingChannel.toString()}`,
+                    ephemeral: true
+                });
+            }
+
+            delete cfg[gid].ticketChannels[interaction.user.id];
+            saveConfig(cfg);
+        }
+
+        const supportRoleIds = [
+            ...(ticketType.supportRoleIds || []),
+            ...(guildCfg?.ticketSupportRole ? [guildCfg.ticketSupportRole] : [])
+        ].filter(Boolean);
+
+        const ticketName = normalizeTicketName(interaction.user.username);
+        const ticketChannel = await createTicketChannel(
+            interaction.guild,
+            categoryId,
+            ticketName,
+            interaction.user,
+            supportRoleIds
+        );
+
+        if (!ticketChannel) {
+            return interaction.reply({
+                content: 'Unable to create a ticket channel. Check ticket category and permissions.',
+                ephemeral: true
+            });
+        }
+
+        cfg[gid].ticketChannels[interaction.user.id] = ticketChannel.id;
+        saveConfig(cfg);
+
+        const ticketButtons = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(TICKET_CLOSE_BUTTON)
+                .setLabel('Close Ticket')
+                .setStyle(ButtonStyle.Danger),
+            new ButtonBuilder()
+                .setCustomId(TICKET_DELETE_BUTTON)
+                .setLabel('Delete Ticket')
+                .setStyle(ButtonStyle.Secondary)
+        );
+
+        await ticketChannel.send({
+            content: `${ticketType.notifyRoleId ? `<@&${ticketType.notifyRoleId}> ` : ''}A new **${ticketType.label}** ticket has been opened by <@${interaction.user.id}>.
+Subject: ${subject}`,
+            embeds: [buildTicketEmbed(interaction.user, subject, ticketType.notifyRoleId)],
+            components: [ticketButtons]
+        }).catch(() => null);
+
+        return interaction.reply({
+            content: `✅ Your ticket has been opened: ${ticketChannel.toString()}`,
+            ephemeral: true
+        });
+    }
 
     if (interaction.isModalSubmit() && interaction.customId === 'rsn_modal') {
 

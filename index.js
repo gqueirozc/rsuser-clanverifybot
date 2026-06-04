@@ -1637,18 +1637,19 @@ client.on('interactionCreate', async interaction => {
         saveConfig(cfg);
 
         // Edit the original wizard panel message with completion info
+        const fields = [
+            { name: 'Clan', value: `**${clan}**`, inline: false },
+            { name: 'Welcome channel', value: welcomeChannel.toString(), inline: true },
+            { name: 'Member role', value: memberRole.toString(), inline: true },
+            { name: 'Guest role', value: guestRole.toString(), inline: true },
+            logsChannel ? { name: 'Logs channel', value: logsChannel.toString(), inline: true } : null
+        ].filter(Boolean);
+
         const completionEmbed = new EmbedBuilder()
             .setTitle('✅ Clan Setup Complete')
             .setDescription('Your clan has been successfully configured.')
             .setColor(0x57F287)
-            .addFields(
-                { name: 'Clan', value: `**${clan}**`, inline: false },
-                { name: 'Welcome channel', value: welcomeChannel.toString(), inline: true },
-                { name: 'Member role', value: memberRole.toString(), inline: true },
-                { name: 'Guest role', value: guestRole.toString(), inline: true },
-                logsChannel ? { name: 'Logs channel', value: logsChannel.toString(), inline: true } : null
-            )
-            .filter(Boolean)
+            .addFields(fields)
             .setFooter({ text: 'Click the button below to update your clan setup' });
 
         const updateButton = new ActionRowBuilder().addComponents(

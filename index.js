@@ -1636,29 +1636,7 @@ client.on('interactionCreate', async interaction => {
         delete cfg[gid].wizardTemp?.[uid];
         saveConfig(cfg);
 
-        // Edit the original wizard panel message with completion info
-        const fields = [
-            { name: 'Clan', value: `**${clan}**`, inline: false },
-            { name: 'Welcome channel', value: welcomeChannel.toString(), inline: true },
-            { name: 'Member role', value: memberRole.toString(), inline: true },
-            { name: 'Guest role', value: guestRole.toString(), inline: true },
-            logsChannel ? { name: 'Logs channel', value: logsChannel.toString(), inline: true } : null
-        ].filter(Boolean);
-
-        const completionEmbed = new EmbedBuilder()
-            .setTitle('✅ Clan Setup Complete')
-            .setDescription('Your clan has been successfully configured.')
-            .setColor(0x57F287)
-            .addFields(fields)
-            .setFooter({ text: 'Click the button below to update your clan setup' });
-
-        const updateButton = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId(SETUP_WIZARD_BUTTON)
-                .setLabel('Update Clan Setup')
-                .setStyle(ButtonStyle.Primary)
-        );
-
+        // Delete the original wizard panel message
         try {
             const panelMsg = cfg[gid].setupWizardPanel;
             if (panelMsg?.channelId && panelMsg?.messageId) {
@@ -1666,12 +1644,12 @@ client.on('interactionCreate', async interaction => {
                 if (panelChannel) {
                     const msg = await panelChannel.messages.fetch(panelMsg.messageId).catch(() => null);
                     if (msg) {
-                        await msg.edit({ embeds: [completionEmbed], components: [updateButton] }).catch(() => null);
+                        await msg.delete().catch(() => null);
                     }
                 }
             }
         } catch (err) {
-            console.error('Failed to update setup wizard panel message:', err);
+            console.error('Failed to delete setup wizard panel message:', err);
         }
 
         return interaction.reply({
@@ -1717,7 +1695,7 @@ client.on('interactionCreate', async interaction => {
         delete cfg[gid].ticketWizardTemp?.[uid];
         saveConfig(cfg);
 
-        // Edit the original panel message with completion info
+        // Edit the original panel message with rebuilt setup wizard
         try {
             const panel = cfg[gid].ticketSetupWizardPanel;
             if (panel?.channelId && panel?.messageId) {
@@ -1725,25 +1703,8 @@ client.on('interactionCreate', async interaction => {
                 if (panelChannel) {
                     const panelMessage = await panelChannel.messages.fetch(panel.messageId).catch(() => null);
                     if (panelMessage) {
-                        const completionEmbed = new EmbedBuilder()
-                            .setTitle('Ticket Setup Complete!')
-                            .setDescription('Your ticket system has been configured. Click the button below to add more types or update settings.')
-                            .setColor(0x57F287)
-                            .addFields(
-                                { name: 'Category', value: category.toString(), inline: false },
-                                { name: 'Default support role', value: `<@&${fallbackRole.id}>`, inline: false },
-                                { name: 'Initial ticket type', value: `**${typeName}**\n${typeDesc}`, inline: false }
-                            );
-                        const row = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder()
-                                .setCustomId(SETUP_TICKET_WIZARD_BUTTON)
-                                .setLabel('Update Ticket Setup')
-                                .setStyle(ButtonStyle.Success)
-                        );
-                        await panelMessage.edit({
-                            embeds: [completionEmbed],
-                            components: [row]
-                        }).catch(() => null);
+                        const updatedPanelData = buildSetupTicketWizardMessage(cfg[gid]);
+                        await panelMessage.edit(updatedPanelData).catch(() => null);
                     }
                 }
             }

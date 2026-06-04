@@ -1,528 +1,332 @@
 require('dotenv').config();
 const fs = require('fs');
 const {
-    Client,
-    GatewayIntentBits,
-    SlashCommandBuilder,
-    PermissionFlagsBits,
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle,
-    ModalBuilder,
-    TextInputBuilder,
-    TextInputStyle
+Client,
+GatewayIntentBits,
+SlashCommandBuilder,
+PermissionFlagsBits,
+ActionRowBuilder,
+ButtonBuilder,
+ButtonStyle,
+ModalBuilder,
+TextInputBuilder,
+TextInputStyle
 } = require('discord.js');
 
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMembers
-    ]
+intents: [
+GatewayIntentBits.Guilds,
+GatewayIntentBits.GuildMembers
+]
 });
 
-function loadConfig() {
-    try {
-        return JSON.parse(
-            fs.readFileSync('./config.json', 'utf8')
-        );
-    } catch {
-        return {};
-    }
+const loadConfig = () => {
+try {
+return JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+} catch {
+return {};
 }
+};
 
-function saveConfig(data) {
-    fs.writeFileSync(
-        './config.json',
-        JSON.stringify(data, null, 2)
-    );
-}
+const saveConfig = (d) =>
+fs.writeFileSync('./config.json', JSON.stringify(d, null, 2));
+
+/* -------------------- RS FUNCTIONS -------------------- */
 
 async function verifyRSN(rsn) {
-    try {
-        const response = await fetch(
-            `https://secure.runescape.com/m=hiscore/index_lite.ws?player=${encodeURIComponent(rsn)}`
-        );
-
-        return response.ok;
-    } catch (err) {
-        console.error('RSN verification error:', err);
-        return false;
-    }
+try {
+const r = await fetch(
+`https://secure.runescape.com/m=hiscore/index_lite.ws?player=${encodeURIComponent(rsn)}`
+);
+return r.ok;
+} catch (err) {
+console.error('verifyRSN error:', err);
+return false;
+}
 }
 
 async function isClanMember(rsn, clanName) {
-    try {
-        const response = await fetch(
-            `https://secure.runescape.com/m=clan-hiscores/members_lite.ws?clanName=${encodeURIComponent(clanName)}`
-        );
+try {
+const r = await fetch(
+`https://secure.runescape.com/m=clan-hiscores/members_lite.ws?clanName=${encodeURIComponent(clanName)}`
+);
 
-        if (!response.ok) {
-            return false;
-        }
+if (!r.ok) return false;
 
-        const csv = await response.text();
+const csv = await r.text();
 
-        return csv
-            .split('\n')
-            .some(line => {
-                const name =
-                    (line.split(',')[0] || '')
-                        .trim();
+return csv.split('\n').some(line => {
+const name = (line.split(',')[0] || '').trim();
+return name.toLowerCase() === rsn.toLowerCase();
+});
 
-                return (
-                    name.toLowerCase() ===
-                    rsn.toLowerCase()
-                );
-            });
-
-    } catch (err) {
-        console.error(
-            'Clan lookup error:',
-            err
-        );
-
-        return false;
-    }
+} catch (err) {
+console.error('clan check error:', err);
+return false;
 }
+}
+
+/* -------------------- READY -------------------- */
 
 client.once('ready', async () => {
 
-    const commands = [
+const commands = [
 
-        new SlashCommandBuilder()
-            .setName('setup-channel')
-            .setDescription(
-                'Set welcome channel'
-            )
-            .addChannelOption(option =>
-                option
-                    .setName('channel')
-                    .setDescription(
-                        'Welcome channel'
-                    )
-                    .setRequired(true)
-            )
-            .setDefaultMemberPermissions(
-                PermissionFlagsBits.Administrator
-            ),
+new SlashCommandBuilder()
+.setName('setup-channel')
+.setDescription('Set welcome channel')
+.addChannelOption(o =>
+o.setName('channel')
+.setDescription('Channel')
+.setRequired(true)
+)
+.setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-        new SlashCommandBuilder()
-            .setName('setup-clan')
-            .setDescription(
-                'Set clan name'
-            )
-            .addStringOption(option =>
-                option
-                    .setName('clan')
-                    .setDescription(
-                        'Clan name'
-                    )
-                    .setRequired(true)
-            )
-            .setDefaultMemberPermissions(
-                PermissionFlagsBits.Administrator
-            ),
+new SlashCommandBuilder()
+.setName('setup-clan')
+.setDescription('Set clan name')
+.addStringOption(o =>
+o.setName('clan')
+.setDescription('Clan')
+.setRequired(true)
+)
+.setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-        new SlashCommandBuilder()
-            .setName('setup-member-role')
-            .setDescription(
-                'Role given to clan members'
-            )
-            .addRoleOption(option =>
-                option
-                    .setName('role')
-                    .setDescription('Role')
-                    .setRequired(true)
-            )
-            .setDefaultMemberPermissions(
-                PermissionFlagsBits.Administrator
-            ),
+new SlashCommandBuilder()
+.setName('setup-member-role')
+.setDescription('Role for clan members')
+.addRoleOption(o =>
+o.setName('role')
+.setDescription('Member role')
+.setRequired(true)
+)
+.setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-        new SlashCommandBuilder()
-            .setName('setup-guest-role')
-            .setDescription(
-                'Role given to non-clan members'
-            )
-            .addRoleOption(option =>
-                option
-                    .setName('role')
-                    .setDescription('Role')
-                    .setRequired(true)
-            )
-            .setDefaultMemberPermissions(
-                PermissionFlagsBits.Administrator
-            ),
+new SlashCommandBuilder()
+.setName('setup-guest-role')
+.setDescription('Role for non-clan members')
+.addRoleOption(o =>
+o.setName('role')
+.setDescription('Guest role')
+.setRequired(true)
+)
+.setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-        new SlashCommandBuilder()
-            .setName('status')
-            .setDescription(
-                'Show bot configuration'
-            )
-    ];
+new SlashCommandBuilder()
+.setName('status')
+.setDescription('Show config')
 
-    await client.application.commands.set(
-        commands.map(cmd => cmd.toJSON())
-    );
+];
 
-    console.log(
-        `Logged in as ${client.user.tag}`
-    );
+await client.application.commands.set(commands.map(c => c.toJSON()));
+
+console.log('Ready as', client.user.tag);
 });
 
-client.on(
-    'interactionCreate',
-    async interaction => {
+/* -------------------- INTERACTIONS -------------------- */
 
-        if (interaction.isChatInputCommand()) {
+client.on('interactionCreate', async interaction => {
 
-            const cfg = loadConfig();
+const cfg = loadConfig();
+const gid = interaction.guild?.id;
+if (gid && !cfg[gid]) cfg[gid] = {};
 
-            const guildId =
-                interaction.guild.id;
+/* -------- COMMANDS -------- */
 
-            cfg[guildId] ??= {};
+if (interaction.isChatInputCommand()) {
 
-            if (
-                interaction.commandName ===
-                'setup-channel'
-            ) {
+if (interaction.commandName === 'setup-channel') {
+cfg[gid].welcomeChannel =
+interaction.options.getChannel('channel').id;
 
-                cfg[guildId].welcomeChannel =
-                    interaction.options
-                        .getChannel('channel')
-                        .id;
+saveConfig(cfg);
 
-                saveConfig(cfg);
+return interaction.reply({
+content: 'Welcome channel set',
+ephemeral: true
+});
+}
 
-                return interaction.reply({
-                    content:
-                        'Welcome channel saved.',
-                    ephemeral: true
-                });
-            }
+if (interaction.commandName === 'setup-clan') {
+cfg[gid].clan =
+interaction.options.getString('clan');
 
-            if (
-                interaction.commandName ===
-                'setup-clan'
-            ) {
+saveConfig(cfg);
 
-                cfg[guildId].clan =
-                    interaction.options.getString(
-                        'clan'
-                    );
+return interaction.reply({
+content: `Clan set: ${cfg[gid].clan}`,
+ephemeral: true
+});
+}
 
-                saveConfig(cfg);
+if (interaction.commandName === 'setup-member-role') {
+cfg[gid].memberRole =
+interaction.options.getRole('role').id;
 
-                return interaction.reply({
-                    content:
-                        `Clan set to ${cfg[guildId].clan}`,
-                    ephemeral: true
-                });
-            }
+saveConfig(cfg);
 
-            if (
-                interaction.commandName ===
-                'setup-member-role'
-            ) {
+return interaction.reply({
+content: 'Member role set',
+ephemeral: true
+});
+}
 
-                cfg[guildId].memberRole =
-                    interaction.options
-                        .getRole('role')
-                        .id;
+if (interaction.commandName === 'setup-guest-role') {
+cfg[gid].guestRole =
+interaction.options.getRole('role').id;
 
-                saveConfig(cfg);
+saveConfig(cfg);
 
-                return interaction.reply({
-                    content:
-                        'Member role saved.',
-                    ephemeral: true
-                });
-            }
+return interaction.reply({
+content: 'Guest role set',
+ephemeral: true
+});
+}
 
-            if (
-                interaction.commandName ===
-                'setup-guest-role'
-            ) {
+if (interaction.commandName === 'status') {
+return interaction.reply({
+content: '```json\n' +
+JSON.stringify(cfg[gid] || {}, null, 2) +
+'\n```',
+ephemeral: true
+});
+}
+}
 
-                cfg[guildId].guestRole =
-                    interaction.options
-                        .getRole('role')
-                        .id;
+/* -------- BUTTON -------- */
 
-                saveConfig(cfg);
+if (interaction.isButton() && interaction.customId === 'add_rsn') {
 
-                return interaction.reply({
-                    content:
-                        'Guest role saved.',
-                    ephemeral: true
-                });
-            }
+const modal = new ModalBuilder()
+.setCustomId('rsn_modal')
+.setTitle('Add RSN');
 
-            if (
-                interaction.commandName ===
-                'status'
-            ) {
+const input = new TextInputBuilder()
+.setCustomId('rsn')
+.setLabel('RuneScape Name')
+.setStyle(TextInputStyle.Short)
+.setRequired(true);
 
-                return interaction.reply({
-                    content: '```json\n' +
-                        JSON.stringify(
-                            cfg[guildId] || {},
-                            null,
-                            2
-                        ) +
-                        '\n```',
-                    ephemeral: true
-                });
-            }
-        }
-
-        if (
-            interaction.isButton() &&
-            interaction.customId ===
-                'add_rsn'
-        ) {
-
-            const modal =
-                new ModalBuilder()
-                    .setCustomId(
-                        'rsn_modal'
-                    )
-                    .setTitle(
-                        'Add RSN'
-                    );
-
-            const input =
-                new TextInputBuilder()
-                    .setCustomId('rsn')
-                    .setLabel(
-                        'Runescape Name'
-                    )
-                    .setStyle(
-                        TextInputStyle.Short
-                    )
-                    .setRequired(true);
-
-            modal.addComponents(
-                new ActionRowBuilder()
-                    .addComponents(input)
-            );
-
-            return interaction.showModal(
-                modal
-            );
-        }
-
-        if (
-            interaction.isModalSubmit() &&
-            interaction.customId ===
-                'rsn_modal'
-        ) {
-
-            const rsn =
-                interaction.fields
-                    .getTextInputValue(
-                        'rsn'
-                    );
-
-            const cfg = loadConfig();
-
-            const guildCfg =
-                cfg[
-                    interaction.guild.id
-                ];
-
-            if (!guildCfg?.clan) {
-
-                return interaction.reply({
-                    content:
-                        'Clan not configured. Use /setup-clan',
-                    ephemeral: true
-                });
-            }
-
-            await interaction.deferReply({
-                ephemeral: true
-            });
-
-            const exists =
-                await verifyRSN(rsn);
-
-            if (!exists) {
-
-                return interaction.editReply({
-                    content:
-                        `❌ RSN not found: ${rsn}`
-                });
-            }
-
-            const clanMember =
-                await isClanMember(
-                    rsn,
-                    guildCfg.clan
-                );
-
-            try {
-
-                const member =
-                    await interaction.guild.members.fetch(
-                        interaction.user.id
-                    );
-
-                await member.setNickname(
-                    rsn
-                );
-
-            } catch (err) {
-
-                console.error(
-                    'Nickname change failed:',
-                    err
-                );
-            }
-
-            try {
-
-                const member =
-                    await interaction.guild.members.fetch(
-                        interaction.user.id
-                    );
-
-                if (
-                    clanMember &&
-                    guildCfg.memberRole
-                ) {
-
-                    await member.roles.add(
-                        guildCfg.memberRole
-                    );
-                }
-
-                if (
-                    !clanMember &&
-                    guildCfg.guestRole
-                ) {
-
-                    await member.roles.add(
-                        guildCfg.guestRole
-                    );
-                }
-
-            } catch (err) {
-
-                console.error(
-                    'Role assignment failed:',
-                    err
-                );
-            }
-
-            try {
-
-                const welcome =
-                    cfg.welcomeMessages?.[
-                        interaction.user.id
-                    ];
-
-                if (welcome) {
-
-                    const channel =
-                        await interaction.guild.channels.fetch(
-                            welcome.channelId
-                        );
-
-                    const message =
-                        await channel.messages.fetch(
-                            welcome.messageId
-                        );
-
-                    await message.delete();
-
-                    delete cfg
-                        .welcomeMessages[
-                            interaction.user.id
-                        ];
-
-                    saveConfig(cfg);
-                }
-
-            } catch (err) {
-
-                console.error(
-                    'Welcome deletion failed:',
-                    err
-                );
-            }
-
-            return interaction.editReply({
-
-                content: clanMember
-                    ? `✅ Verified. ${rsn} is in ${guildCfg.clan}.`
-                    : `✅ Verified. ${rsn} exists but is not in ${guildCfg.clan}.`
-            });
-        }
-    }
+modal.addComponents(
+new ActionRowBuilder().addComponents(input)
 );
 
-client.on(
-    'guildMemberAdd',
-    async member => {
+return interaction.showModal(modal);
+}
 
-        const cfg = loadConfig();
+/* -------- MODAL -------- */
 
-        const guildCfg =
-            cfg[member.guild.id];
+if (interaction.isModalSubmit() && interaction.customId === 'rsn_modal') {
 
-        if (
-            !guildCfg?.welcomeChannel
-        ) {
-            return;
-        }
+const rsn = interaction.fields.getTextInputValue('rsn');
 
-        const channel =
-            member.guild.channels.cache.get(
-                guildCfg.welcomeChannel
-            );
+const guildCfg = cfg[gid];
+const clan = guildCfg?.clan;
 
-        if (!channel) {
-            return;
-        }
+if (!clan) {
+return interaction.reply({
+content: 'Clan not set. Use /setup-clan',
+ephemeral: true
+});
+}
 
-        const row =
-            new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(
-                            'add_rsn'
-                        )
-                        .setLabel(
-                            'Add RSN'
-                        )
-                        .setStyle(
-                            ButtonStyle.Primary
-                        )
-                );
+await interaction.deferReply({ ephemeral: true });
 
-        const message =
-            await channel.send({
-                content:
-                    `Welcome ${member}! Click Add RSN below.`,
-                components: [row]
-            });
+/* check RSN */
+if (!(await verifyRSN(rsn))) {
+return interaction.editReply({
+content: `❌ RSN not found: ${rsn}`
+});
+}
 
-        cfg.welcomeMessages ??= {};
+/* check clan (non-blocking logic) */
+let inClan = false;
+try {
+inClan = await isClanMember(rsn, clan);
+} catch (e) {
+console.error(e);
+}
 
-        cfg.welcomeMessages[
-            member.id
-        ] = {
-            guildId:
-                member.guild.id,
-            channelId:
-                channel.id,
-            messageId:
-                message.id
-        };
+/* nickname update */
+try {
+const member = await interaction.guild.members.fetch(interaction.user.id);
+await member.setNickname(rsn);
+} catch (err) {
+console.error('Nickname error:', err);
+}
 
-        saveConfig(cfg);
-    }
+/* roles */
+try {
+const member = await interaction.guild.members.fetch(interaction.user.id);
+
+if (inClan && guildCfg.memberRole) {
+await member.roles.add(guildCfg.memberRole);
+}
+
+if (!inClan && guildCfg.guestRole) {
+await member.roles.add(guildCfg.guestRole);
+}
+} catch (err) {
+console.error('Role error:', err);
+}
+
+/* delete welcome message */
+try {
+const welcome = guildCfg.welcomeMessages?.[interaction.user.id];
+
+if (welcome) {
+const channel = await interaction.guild.channels.fetch(welcome.channelId);
+const msg = await channel.messages.fetch(welcome.messageId);
+await msg.delete();
+
+delete cfg[gid].welcomeMessages[interaction.user.id];
+saveConfig(cfg);
+}
+} catch (err) {
+console.error('Delete welcome error:', err);
+}
+
+/* response */
+return interaction.editReply({
+content: inClan
+? `✅ Verified: ${rsn} is in ${clan}`
+: `✅ Verified: ${rsn} exists but is NOT in ${clan}`
+});
+}
+});
+
+/* -------------------- WELCOME -------------------- */
+
+client.on('guildMemberAdd', async member => {
+
+const cfg = loadConfig();
+const guildCfg = cfg[member.guild.id];
+
+if (!guildCfg?.welcomeChannel) return;
+
+const ch = member.guild.channels.cache.get(guildCfg.welcomeChannel);
+if (!ch) return;
+
+const row = new ActionRowBuilder().addComponents(
+new ButtonBuilder()
+.setCustomId('add_rsn')
+.setLabel('Add RSN')
+.setStyle(ButtonStyle.Primary)
 );
+
+const msg = await ch.send({
+content: `Welcome ${member}! Click Add RSN below.`,
+components: [row]
+});
+
+cfg[member.guild.id].welcomeMessages ??= {};
+
+cfg[member.guild.id].welcomeMessages[member.id] = {
+channelId: ch.id,
+messageId: msg.id
+};
+
+saveConfig(cfg);
+});
 
 client.login(process.env.TOKEN);

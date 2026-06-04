@@ -572,6 +572,11 @@ client.once('ready', async () => {
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
         new SlashCommandBuilder()
+        .setName('reset-config')
+        .setDescription('Factory reset bot configuration (clears all settings)')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+        new SlashCommandBuilder()
         .setName('status')
         .setDescription('Show config')
 
@@ -1043,6 +1048,25 @@ client.on('interactionCreate', async interaction => {
             });
         }
 
+        if (interaction.commandName === 'reset-config') {
+            // Confirm before reset
+            const confirmButton = new ButtonBuilder()
+                .setCustomId('confirm_reset_config')
+                .setLabel('Confirm Reset')
+                .setStyle(ButtonStyle.Danger);
+            const cancelButton = new ButtonBuilder()
+                .setCustomId('cancel_reset_config')
+                .setLabel('Cancel')
+                .setStyle(ButtonStyle.Secondary);
+            const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+
+            return interaction.reply({
+                content: '⚠️ **WARNING**: This will factory reset ALL bot configuration for this guild. This cannot be undone. Are you sure?',
+                components: [row],
+                flags: 64
+            });
+        }
+
         if (interaction.commandName === 'status') {
             return interaction.reply({
                 content: '```json\n' +
@@ -1348,6 +1372,25 @@ client.on('interactionCreate', async interaction => {
             );
 
             return interaction.showModal(modal);
+        }
+
+        if (customId === 'confirm_reset_config') {
+            const gid = interaction.guild?.id;
+            // Delete all config for this guild
+            delete cfg[gid];
+            saveConfig(cfg);
+
+            return interaction.reply({
+                content: '✅ Bot configuration has been factory reset for this guild. All settings have been cleared.',
+                flags: 64
+            });
+        }
+
+        if (customId === 'cancel_reset_config') {
+            return interaction.reply({
+                content: '❌ Reset cancelled.',
+                flags: 64
+            });
         }
     }
 

@@ -26,6 +26,8 @@ const TICKET_MANAGE_CUSTOMIZE_TYPE = 'ticket_manage_customize_type';
 const TICKET_MANAGE_CUSTOMIZE_PANEL = 'ticket_manage_customize_panel';
 const TICKET_MANAGE_VIEW_TYPES = 'ticket_manage_view_types';
 const TICKET_CLAIM_BUTTON = 'claim_ticket';
+const TICKET_ADD_TYPE_CONTINUE = 'ticket_add_type_continue';
+const TICKET_MANAGE_ADD_TYPE_MODAL = 'ticket_manage_add_type_modal';
 
 module.exports = {
     DEFAULT_SEARCHING_MESSAGE,

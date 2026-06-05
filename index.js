@@ -16,7 +16,7 @@ const {
     ChannelType
 } = require('discord.js');
 
-const { loadConfig, saveConfig, cleanStaleTemp } = require('./config');
+const { loadConfig, saveConfig, deleteGuildConfig, cleanStaleTemp } = require('./config');
 const {
     resolveChannel,
     resolveRole,
@@ -493,7 +493,7 @@ client.on('interactionCreate', async interaction => {
         } catch (err) {
             console.error('Failed to edit setup wizard panel message:', err);
         }
-        
+
         return interaction.reply({ content: `✅ Clan setup complete!\n• Clan: **${clan}**\n• Welcome channel: ${welcomeChannel.toString()}\n• Member role: ${memberRole.toString()}\n• Guest role: ${guestRole.toString()}${logsChannel ? `\n• Logs channel: ${logsChannel.toString()}` : ''}`, flags: 64 });
     }
 

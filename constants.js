@@ -9,6 +9,7 @@ const SETUP_LOGS_CHANNEL_SELECT = 'setup_logs_channel_select';
 const SETUP_WIZARD_CONTINUE = 'setup_wizard_continue';
 const SETUP_WELCOME_MESSAGE_BUTTON = 'setup_welcome_message_btn';
 const SETUP_WELCOME_IMAGE_BUTTON = 'setup_welcome_image_btn';
+const SETUP_WIZARD_EDIT_SELECT = 'setup_wizard_edit_select';
 
 module.exports = {
     DEFAULT_SEARCHING_MESSAGE,
@@ -20,6 +21,7 @@ module.exports = {
     SETUP_LOGS_CHANNEL_SELECT,
     SETUP_WIZARD_CONTINUE,
     SETUP_WELCOME_IMAGE_BUTTON,
-    SETUP_WELCOME_MESSAGE_BUTTON
+    SETUP_WELCOME_MESSAGE_BUTTON,
+    SETUP_WIZARD_EDIT_SELECT
 };
  

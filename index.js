@@ -13,7 +13,8 @@ const {
     EmbedBuilder,
     ChannelSelectMenuBuilder,
     RoleSelectMenuBuilder,
-    ChannelType
+    ChannelType,
+    StringSelectMenuBuilder
 } = require('discord.js');
 
 const { loadConfig, saveConfig, deleteGuildConfig, cleanStaleTemp } = require('./config');
@@ -36,7 +37,8 @@ const {
     SETUP_LOGS_CHANNEL_SELECT,
     SETUP_WIZARD_CONTINUE,
     SETUP_WELCOME_MESSAGE_BUTTON,
-    SETUP_WELCOME_IMAGE_BUTTON
+    SETUP_WELCOME_IMAGE_BUTTON,
+    SETUP_WIZARD_EDIT_SELECT
 } = require('./constants');
 
 const client = new Client({
@@ -223,6 +225,7 @@ client.on('interactionCreate', async interaction => {
                     const panelChannel = await interaction.guild.channels.fetch(cfg[gid].setupWizardPanel.channelId).catch(() => null);
                     if (panelChannel) panelMessage = await panelChannel.messages.fetch(cfg[gid].setupWizardPanel.messageId).catch(() => null);
                 }
+                console.log('Panel message found:', !!panelMessage);
 
                 if (panelMessage) {
                     await panelMessage.edit(panelData).catch(() => null);
@@ -332,10 +335,69 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
+    if (interaction.isStringSelectMenu()) {
+        if (interaction.customId === SETUP_WIZARD_EDIT_SELECT) {
+            const field = interaction.values[0];
+
+            if (field === 'clan') {
+                const modal = new ModalBuilder().setCustomId('setup_edit_clan_modal').setTitle('Update Clan Name');
+                const input = new TextInputBuilder()
+                    .setCustomId('clan_name')
+                    .setLabel('Clan name')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true)
+                    .setValue(guildCfg.clan || '');
+                modal.addComponents(new ActionRowBuilder().addComponents(input));
+                return interaction.showModal(modal);
+            }
+
+            if (field === 'welcomeChannel' || field === 'serverLogsChannel') {
+                const row = new ActionRowBuilder().addComponents(
+                    new ChannelSelectMenuBuilder()
+                        .setCustomId(`setup_edit_channel_${field}`)
+                        .setPlaceholder(`Select new ${field === 'welcomeChannel' ? 'welcome' : 'logs'} channel`)
+                        .setChannelTypes([ChannelType.GuildText])
+                        .setMinValues(1)
+                        .setMaxValues(1)
+                );
+                return interaction.reply({ content: 'Select the new channel:', components: [row], flags: 64 });
+            }
+
+            if (field === 'memberRole' || field === 'guestRole') {
+                const row = new ActionRowBuilder().addComponents(
+                    new RoleSelectMenuBuilder()
+                        .setCustomId(`setup_edit_role_${field}`)
+                        .setPlaceholder(`Select new ${field === 'memberRole' ? 'member' : 'guest'} role`)
+                        .setMinValues(1)
+                        .setMaxValues(1)
+                );
+                return interaction.reply({ content: 'Select the new role:', components: [row], flags: 64 });
+            }
+        }
+    }
+
     if (interaction.isButton()) {
         const customId = interaction.customId;
 
         if (customId === SETUP_WIZARD_BUTTON) {
+            const isConfigured = guildCfg.clan && guildCfg.welcomeChannel && guildCfg.memberRole && guildCfg.guestRole;
+
+            if (isConfigured) {
+                const row = new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId(SETUP_WIZARD_EDIT_SELECT)
+                        .setPlaceholder('What do you want to update?')
+                        .addOptions([
+                            { label: 'Clan Name', value: 'clan', description: `Currently: ${guildCfg.clan}` },
+                            { label: 'Welcome Channel', value: 'welcomeChannel', description: 'Change the welcome channel' },
+                            { label: 'Member Role', value: 'memberRole', description: 'Change the member role' },
+                            { label: 'Guest Role', value: 'guestRole', description: 'Change the guest role' },
+                            { label: 'Logs Channel', value: 'serverLogsChannel', description: 'Change the logs channel' },
+                        ])
+                );
+                return interaction.reply({ content: 'What would you like to update?', components: [row], flags: 64 });
+            }
+
             const welcomeChannelSelect = new ChannelSelectMenuBuilder().setCustomId(SETUP_WELCOME_CHANNEL_SELECT).setPlaceholder('Select welcome text channel').setChannelTypes([ChannelType.GuildText]).setMinValues(1).setMaxValues(1);
             const logsChannelSelect = new ChannelSelectMenuBuilder().setCustomId(SETUP_LOGS_CHANNEL_SELECT).setPlaceholder('Select optional logs channel').setChannelTypes([ChannelType.GuildText]).setMinValues(0).setMaxValues(1);
             const memberRoleSelect = new RoleSelectMenuBuilder().setCustomId(SETUP_MEMBER_ROLE_SELECT).setPlaceholder('Select member role').setMinValues(1).setMaxValues(1);
@@ -349,7 +411,6 @@ client.on('interactionCreate', async interaction => {
                     new ButtonBuilder().setCustomId(SETUP_WIZARD_CONTINUE).setLabel('Continue').setStyle(ButtonStyle.Primary)
                 )
             ];
-
             const uid = interaction.user.id;
             cfg[gid].wizardTemp ??= {};
             cfg[gid].wizardTemp[uid] ??= {};
@@ -485,6 +546,30 @@ client.on('interactionCreate', async interaction => {
 
         return interaction.reply({ content: `✅ Clan setup complete!\n• Clan: **${clan}**\n• Welcome channel: ${welcomeChannel.toString()}\n• Member role: ${memberRole.toString()}\n• Guest role: ${guestRole.toString()}${logsChannel ? `\n• Logs channel: ${logsChannel.toString()}` : ''}`, flags: 64 });
     }
+
+    if (interaction.customId.startsWith('setup_edit_channel_')) {
+        const field = interaction.customId.replace('setup_edit_channel_', '');
+        cfg[gid][field] = interaction.values[0];
+        await saveConfig(cfg);
+        await refreshSetupWizardPanel(interaction.guild, cfg, gid);
+        return interaction.update({ content: `✅ Updated successfully.`, components: [] });
+    }
+
+    if (interaction.customId.startsWith('setup_edit_role_')) {
+        const field = interaction.customId.replace('setup_edit_role_', '');
+        cfg[gid][field] = interaction.values[0];
+        await saveConfig(cfg);
+        await refreshSetupWizardPanel(interaction.guild, cfg, gid);
+        return interaction.update({ content: `✅ Updated successfully.`, components: [] });
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId === 'setup_edit_clan_modal') {
+        const clan = interaction.fields.getTextInputValue('clan_name').trim();
+        cfg[gid].clan = clan;
+        await saveConfig(cfg);
+        await refreshSetupWizardPanel(interaction.guild, cfg, gid);
+        return interaction.reply({ content: `✅ Clan name updated to **${clan}**.`, flags: 64 });
+    }    
 
     if (interaction.isModalSubmit() && interaction.customId === 'rsn_modal') {
         const rsn = interaction.fields.getTextInputValue('rsn');

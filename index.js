@@ -487,32 +487,13 @@ client.on('interactionCreate', async interaction => {
                 const panelChannel = await interaction.guild.channels.fetch(panelMsg.channelId).catch(() => null);
                 if (panelChannel) {
                     const msg = await panelChannel.messages.fetch(panelMsg.messageId).catch(() => null);
-                    if (msg) {
-                        const configEmbed = new EmbedBuilder()
-                            .setTitle('✅ Clan Setup Configured')
-                            .setDescription('Your clan configuration has been saved.')
-                            .setColor(0x57F287)
-                            .addFields(
-                                { name: 'Clan Name', value: `**${clan}**`, inline: false },
-                                { name: 'Welcome Channel', value: welcomeChannel.toString(), inline: true },
-                                { name: 'Member Role', value: memberRole.toString(), inline: true },
-                                { name: 'Guest Role', value: guestRole.toString(), inline: true },
-                                ...(logsChannel ? [{ name: 'Logs Channel', value: logsChannel.toString(), inline: true }] : [])
-                            )
-                            .setFooter({ text: 'Click the button below to update your clan setup' });
-
-                        const updateButton = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId(SETUP_WIZARD_BUTTON).setLabel('Update Clan Setup').setStyle(ButtonStyle.Primary)
-                        );
-
-                        await msg.edit({ embeds: [configEmbed], components: [updateButton] }).catch(() => null);
-                    }
+                    if (msg) await msg.edit(buildSetupWizardMessage(cfg[gid])).catch(() => null);
                 }
             }
         } catch (err) {
             console.error('Failed to edit setup wizard panel message:', err);
         }
-
+        
         return interaction.reply({ content: `✅ Clan setup complete!\n• Clan: **${clan}**\n• Welcome channel: ${welcomeChannel.toString()}\n• Member role: ${memberRole.toString()}\n• Guest role: ${guestRole.toString()}${logsChannel ? `\n• Logs channel: ${logsChannel.toString()}` : ''}`, flags: 64 });
     }
 

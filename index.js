@@ -481,18 +481,7 @@ client.on('interactionCreate', async interaction => {
         delete cfg[gid].wizardTemp?.[uid];
         await saveConfig(cfg);
 
-        try {
-            const panelMsg = cfg[gid].setupWizardPanel;
-            if (panelMsg?.channelId && panelMsg?.messageId) {
-                const panelChannel = await interaction.guild.channels.fetch(panelMsg.channelId).catch(() => null);
-                if (panelChannel) {
-                    const msg = await panelChannel.messages.fetch(panelMsg.messageId).catch(() => null);
-                    if (msg) await msg.edit(buildSetupWizardMessage(cfg[gid])).catch(() => null);
-                }
-            }
-        } catch (err) {
-            console.error('Failed to edit setup wizard panel message:', err);
-        }
+        await refreshSetupWizardPanel(interaction.guild, cfg, gid);
 
         return interaction.reply({ content: `✅ Clan setup complete!\n• Clan: **${clan}**\n• Welcome channel: ${welcomeChannel.toString()}\n• Member role: ${memberRole.toString()}\n• Guest role: ${guestRole.toString()}${logsChannel ? `\n• Logs channel: ${logsChannel.toString()}` : ''}`, flags: 64 });
     }

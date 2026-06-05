@@ -131,30 +131,30 @@ client.once('ready', async () => {
     await client.application.commands.set(commands.map(c => c.toJSON()));
     console.log('Ready as', client.user.tag);
 
-    const cfg = loadConfig();
-    if (cleanStaleTemp(cfg)) saveConfig(cfg);
-    setInterval(() => {
-        const c = loadConfig();
-        if (cleanStaleTemp(c)) saveConfig(c);
+    const cfg = await loadConfig();
+    if (cleanStaleTemp(cfg)) await await saveConfig(cfg);
+    setInterval(async () => {
+        const c = await loadConfig();
+        if (cleanStaleTemp(c)) await saveConfig(c);
     }, 1000 * 60 * 60 * 24);
 });
 
 client.on('interactionCreate', async interaction => {
-    const cfg = loadConfig();
+    const cfg = await loadConfig();
     const gid = interaction.guild?.id;
     const guildCfg = getGuildConfig(cfg, gid);
 
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'setup-channel') {
             cfg[gid].welcomeChannel = interaction.options.getChannel('channel').id;
-            saveConfig(cfg);
+            await saveConfig(cfg);
             return interaction.reply({ content: 'Welcome channel set', flags: 64 });
         }
 
         if (interaction.commandName === 'setup-welcome-message') {
             const message = interaction.options.getString('message');
             cfg[gid].welcomeMessage = message;
-            saveConfig(cfg);
+            await saveConfig(cfg);
             return interaction.reply({ content: `✅ Welcome message set:\n${message.replace('{user}', '@[member]')}`, flags: 64 });
         }
 
@@ -162,36 +162,36 @@ client.on('interactionCreate', async interaction => {
             const url = interaction.options.getString('url');
             if (url) {
                 cfg[gid].welcomeImage = url;
-                saveConfig(cfg);
+                await saveConfig(cfg);
                 return interaction.reply({ content: `✅ Welcome image set.`, flags: 64 });
             } else {
                 delete cfg[gid].welcomeImage;
-                saveConfig(cfg);
+                await saveConfig(cfg);
                 return interaction.reply({ content: '✅ Welcome image removed.', flags: 64 });
             }
         }
 
         if (interaction.commandName === 'setup-clan') {
             cfg[gid].clan = interaction.options.getString('clan');
-            saveConfig(cfg);
+            await saveConfig(cfg);
             return interaction.reply({ content: `Clan set: ${cfg[gid].clan}`, flags: 64 });
         }
 
         if (interaction.commandName === 'setup-member-role') {
             cfg[gid].memberRole = interaction.options.getRole('role').id;
-            saveConfig(cfg);
+            await saveConfig(cfg);
             return interaction.reply({ content: 'Member role set', flags: 64 });
         }
 
         if (interaction.commandName === 'setup-guest-role') {
             cfg[gid].guestRole = interaction.options.getRole('role').id;
-            saveConfig(cfg);
+            await saveConfig(cfg);
             return interaction.reply({ content: 'Guest role set', flags: 64 });
         }
 
         if (interaction.commandName === 'setup-server-logs') {
             cfg[gid].serverLogsChannel = interaction.options.getChannel('channel').id;
-            saveConfig(cfg);
+            await saveConfig(cfg);
             return interaction.reply({ content: 'Server logs channel set', flags: 64 });
         }
 
@@ -229,7 +229,7 @@ client.on('interactionCreate', async interaction => {
                 }
 
                 cfg[gid].setupWizardPanel = { channelId: channel.id, messageId: panelMessage.id };
-                saveConfig(cfg);
+                await saveConfig(cfg);
             } catch (err) {
                 console.error('Setup wizard panel error:', err.message || err);
                 return interaction.reply({ content: `❌ Unable to post the setup wizard panel: ${err.message || 'Unknown error'}`, flags: 64 });
@@ -295,7 +295,7 @@ client.on('interactionCreate', async interaction => {
             }
 
             await removeWelcomeMessage(client, cfg, gid, guildCfg, member.id);
-            saveConfig(cfg);
+            await saveConfig(cfg);
 
             const roleText = addedRoleName ? `Added role: ${addedRoleName}` : 'No role assigned yet.';
 
@@ -351,7 +351,7 @@ client.on('interactionCreate', async interaction => {
             const uid = interaction.user.id;
             cfg[gid].wizardTemp ??= {};
             cfg[gid].wizardTemp[uid] ??= {};
-            saveConfig(cfg);
+            await saveConfig(cfg);
             return interaction.reply({ content: 'Select channels and roles for your clan setup, then click Continue.', components: rows, flags: 64 });
         }
 
@@ -414,8 +414,7 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (customId === 'confirm_reset_config') {
-            delete cfg[gid];
-            saveConfig(cfg);
+            await deleteGuildConfig(gid);
             return interaction.reply({ content: '✅ Bot configuration has been factory reset for this guild. All settings have been cleared.', flags: 64 });
         }
 
@@ -449,7 +448,7 @@ client.on('interactionCreate', async interaction => {
             cfg[gid].wizardTemp[uid].timestamp = Date.now();
         }
 
-        saveConfig(cfg);
+        await saveConfig(cfg);
         return interaction.update({ components: interaction.message.components, flags: 64 });
     }
 
@@ -478,7 +477,7 @@ client.on('interactionCreate', async interaction => {
         cfg[gid].guestRole = guestRole.id;
         if (logsChannel) cfg[gid].serverLogsChannel = logsChannel.id;
         delete cfg[gid].wizardTemp?.[uid];
-        saveConfig(cfg);
+        await saveConfig(cfg);
 
         try {
             const panelMsg = cfg[gid].setupWizardPanel;
@@ -569,7 +568,7 @@ client.on('interactionCreate', async interaction => {
 
         try {
             await removeWelcomeMessage(client, cfg, gid, guildCfg, interaction.user.id);
-            saveConfig(cfg);
+            await saveConfig(cfg);
         } catch (err) {
             console.error('Delete welcome error:', err);
         }
@@ -604,7 +603,7 @@ client.on('interactionCreate', async interaction => {
     if (interaction.isModalSubmit() && interaction.customId === 'setup_welcome_message_modal') {
         const message = interaction.fields.getTextInputValue('welcome_message').trim();
         cfg[gid].welcomeMessage = message;
-        saveConfig(cfg);
+        await saveConfig(cfg);
         await refreshSetupWizardPanel(interaction.guild, cfg, gid);
         return interaction.reply({ content: `✅ Welcome message updated:\n${message.replace('{user}', '@[member]')}`, flags: 64 });
     }
@@ -616,14 +615,14 @@ client.on('interactionCreate', async interaction => {
         } else {
             delete cfg[gid].welcomeImage;
         }
-        saveConfig(cfg);
+        await saveConfig(cfg);
         await refreshSetupWizardPanel(interaction.guild, cfg, gid);
         return interaction.reply({ content: url ? '✅ Welcome image updated.' : '✅ Welcome image removed.', flags: 64 });
     }
 });
 
 client.on('guildMemberAdd', async member => {
-    const cfg = loadConfig();
+    const cfg = await loadConfig();
     const guildCfg = cfg[member.guild.id];
 
     if (!guildCfg?.welcomeChannel) return;
@@ -661,7 +660,7 @@ client.on('guildMemberAdd', async member => {
         messageId: msg.id
     };
 
-    saveConfig(cfg);
+    await saveConfig(cfg);
 });
 
 client.login(process.env.DISCORD_TOKEN).catch(err => console.error('Login failed:', err));

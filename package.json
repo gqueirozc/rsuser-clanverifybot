@@ -1,9 +1,10 @@
 {
-  "name":"rsn-clan-bot",
-  "version":"1.0.0",
-  "main":"index.js",
-  "dependencies":{
-    "discord.js":"^14.21.0",
-    "dotenv":"^17.0.0"
+  "name": "rsn-clan-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "discord.js": "^14.21.0",
+    "dotenv": "^17.0.0",
+    "mongodb": "^7.2.0"
   }
 }

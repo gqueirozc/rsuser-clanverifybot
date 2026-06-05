@@ -1,26 +1,33 @@
-const fs = require('fs');
+const { MongoClient } = require('mongodb');
 
-const loadConfig = () => {
-    try {
-        return JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-    } catch {
-        return {};
+const client = new MongoClient(process.env.MONGODB_URI);
+let db;
+
+const connect = async () => {
+    if (!db) {
+        await client.connect();
+        db = client.db('clanbot'); // name your DB whatever you like
     }
+    return db;
 };
 
-const saveConfig = (d) => {
-    try {
-        if (Object.keys(d).length === 0) {
-            const existing = loadConfig();
-            if (Object.keys(existing).length > 0) {
-                console.warn('⚠️ Prevented saving empty config over existing data!');
-                return;
-            }
-        }
-    } catch (err) {
-        console.error('Safeguard check error:', err);
+const loadConfig = async () => {
+    const database = await connect();
+    const docs = await database.collection('config').find({}).toArray();
+    const cfg = {};
+    for (const doc of docs) {
+        const { _id, ...data } = doc;
+        cfg[_id] = data;
     }
-    fs.writeFileSync('./config.json', JSON.stringify(d, null, 2));
+    return cfg;
+};
+
+const saveConfig = async (cfg) => {
+    const database = await connect();
+    const collection = database.collection('config');
+    for (const [gid, data] of Object.entries(cfg)) {
+        await collection.replaceOne({ _id: gid }, { _id: gid, ...data }, { upsert: true });
+    }
 };
 
 const CLEANUP_AGE = 1000 * 60 * 60 * 24 * 7; // 7 days
@@ -48,8 +55,14 @@ const cleanStaleTemp = (cfg) => {
     return hasChanges;
 };
 
+const deleteGuildConfig = async (gid) => {
+    const database = await connect();
+    await database.collection('config').deleteOne({ _id: gid });
+};
+
 module.exports = {
     loadConfig,
     saveConfig,
+    deleteGuildConfig,
     cleanStaleTemp
 };

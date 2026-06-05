@@ -43,20 +43,6 @@ const cleanStaleTemp = (cfg) => {
                 hasChanges = true;
             }
         }
-
-        if (cfg[gid].ticketWizardTemp) {
-            for (const uid of Object.keys(cfg[gid].ticketWizardTemp)) {
-                const t = cfg[gid].ticketWizardTemp[uid]?.timestamp;
-                if (t && now - t > CLEANUP_AGE) {
-                    delete cfg[gid].ticketWizardTemp[uid];
-                    hasChanges = true;
-                }
-            }
-            if (Object.keys(cfg[gid].ticketWizardTemp).length === 0) {
-                delete cfg[gid].ticketWizardTemp;
-                hasChanges = true;
-            }
-        }
     }
 
     return hasChanges;

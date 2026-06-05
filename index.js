@@ -47,6 +47,15 @@ const getGuildConfig = (cfg, gid) => {
     return cfg[gid];
 };
 
+const refreshSetupWizardPanel = async (guild, cfg, gid) => {
+    const panel = cfg[gid].setupWizardPanel;
+    if (!panel?.channelId || !panel?.messageId) return;
+    const panelChannel = await guild.channels.fetch(panel.channelId).catch(() => null);
+    if (!panelChannel) return;
+    const panelMessage = await panelChannel.messages.fetch(panel.messageId).catch(() => null);
+    if (panelMessage) await panelMessage.edit(buildSetupWizardMessage(cfg[gid])).catch(() => null);
+};
+
 const buildVerificationEmbed = (member, rsn, inClan, clan, clanRank, addedRoleName, title) => {
     const statusText = inClan ? `In clan **${clan}**${clanRank ? ` (rank ${clanRank})` : ''}` : `Not in clan **${clan}**`;
     return new EmbedBuilder()
@@ -106,7 +115,17 @@ client.once('ready', async () => {
             .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
         new SlashCommandBuilder()
             .setName('status')
-            .setDescription('Show config')
+            .setDescription('Show config'),
+        new SlashCommandBuilder()
+            .setName('setup-welcome-message')
+            .setDescription('Set the message sent when a new member joins')
+            .addStringOption(o => o.setName('message').setDescription('Use {user} as a placeholder for the member mention').setRequired(true))
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+        new SlashCommandBuilder()
+            .setName('setup-welcome-image')
+            .setDescription('Set an image to display in the welcome message embed')
+            .addStringOption(o => o.setName('url').setDescription('Direct image URL (leave empty to remove)').setRequired(false))
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     ];
 
     await client.application.commands.set(commands.map(c => c.toJSON()));
@@ -130,6 +149,26 @@ client.on('interactionCreate', async interaction => {
             cfg[gid].welcomeChannel = interaction.options.getChannel('channel').id;
             saveConfig(cfg);
             return interaction.reply({ content: 'Welcome channel set', flags: 64 });
+        }
+
+        if (interaction.commandName === 'setup-welcome-message') {
+            const message = interaction.options.getString('message');
+            cfg[gid].welcomeMessage = message;
+            saveConfig(cfg);
+            return interaction.reply({ content: `✅ Welcome message set:\n${message.replace('{user}', '@[member]')}`, flags: 64 });
+        }
+
+        if (interaction.commandName === 'setup-welcome-image') {
+            const url = interaction.options.getString('url');
+            if (url) {
+                cfg[gid].welcomeImage = url;
+                saveConfig(cfg);
+                return interaction.reply({ content: `✅ Welcome image set.`, flags: 64 });
+            } else {
+                delete cfg[gid].welcomeImage;
+                saveConfig(cfg);
+                return interaction.reply({ content: '✅ Welcome image removed.', flags: 64 });
+            }
         }
 
         if (interaction.commandName === 'setup-clan') {
@@ -315,6 +354,34 @@ client.on('interactionCreate', async interaction => {
             saveConfig(cfg);
             return interaction.reply({ content: 'Select channels and roles for your clan setup, then click Continue.', components: rows, flags: 64 });
         }
+
+        if (customId === SETUP_WELCOME_MESSAGE_BUTTON) {
+            const modal = new ModalBuilder()
+                .setCustomId('setup_welcome_message_modal')
+                .setTitle('Set Welcome Message');
+            const input = new TextInputBuilder()
+                .setCustomId('welcome_message')
+                .setLabel('Message (use {user} for the member mention)')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setValue(guildCfg.welcomeMessage || '');
+            modal.addComponents(new ActionRowBuilder().addComponents(input));
+            return interaction.showModal(modal);
+        }
+
+        if (customId === SETUP_WELCOME_IMAGE_BUTTON) {
+            const modal = new ModalBuilder()
+                .setCustomId('setup_welcome_image_modal')
+                .setTitle('Set Welcome Image');
+            const input = new TextInputBuilder()
+                .setCustomId('welcome_image_url')
+                .setLabel('Direct image URL (leave blank to remove)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(false)
+                .setValue(guildCfg.welcomeImage || '');
+            modal.addComponents(new ActionRowBuilder().addComponents(input));
+            return interaction.showModal(modal);
+        }        
 
         if (customId === SETUP_WIZARD_CONTINUE) {
             const uid = interaction.user.id;
@@ -533,6 +600,26 @@ client.on('interactionCreate', async interaction => {
 
         return interaction.editReply({ content: inClan ? `${DEFAULT_WELCOME_REPLY} Your RuneScape name is verified and you are a member of ${clan}${clanRank ? ` (rank ${clanRank})` : ''}. ${roleText}` : `${DEFAULT_WELCOME_REPLY} Your RuneScape name is verified, but you are not currently listed in ${clan}. ${roleText}` });
     }
+
+    if (interaction.isModalSubmit() && interaction.customId === 'setup_welcome_message_modal') {
+        const message = interaction.fields.getTextInputValue('welcome_message').trim();
+        cfg[gid].welcomeMessage = message;
+        saveConfig(cfg);
+        await refreshSetupWizardPanel(interaction.guild, cfg, gid);
+        return interaction.reply({ content: `✅ Welcome message updated:\n${message.replace('{user}', '@[member]')}`, flags: 64 });
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId === 'setup_welcome_image_modal') {
+        const url = interaction.fields.getTextInputValue('welcome_image_url').trim();
+        if (url) {
+            cfg[gid].welcomeImage = url;
+        } else {
+            delete cfg[gid].welcomeImage;
+        }
+        saveConfig(cfg);
+        await refreshSetupWizardPanel(interaction.guild, cfg, gid);
+        return interaction.reply({ content: url ? '✅ Welcome image updated.' : '✅ Welcome image removed.', flags: 64 });
+    }
 });
 
 client.on('guildMemberAdd', async member => {
@@ -551,10 +638,22 @@ client.on('guildMemberAdd', async member => {
             .setStyle(ButtonStyle.Primary)
     );
 
-    const msg = await ch.send({
-        content: `<@${member.id}> Click Link with RSN below to verify your RuneScape name and get your role.`,
-        components: [row]
-    });
+    const welcomeText = guildCfg.welcomeMessage
+        ? guildCfg.welcomeMessage.replace('{user}', `<@${member.id}>`)
+        : `<@${member.id}> Click Link with RSN below to verify your RuneScape name and get your role.`;
+
+    const messagePayload = { components: [row] };
+
+    if (guildCfg.welcomeImage) {
+        const embed = new EmbedBuilder()
+            .setImage(guildCfg.welcomeImage)
+            .setDescription(welcomeText);
+        messagePayload.embeds = [embed];
+    } else {
+        messagePayload.content = welcomeText;
+    }
+
+    const msg = await ch.send(messagePayload);
 
     cfg[member.guild.id].welcomeMessages ??= {};
     cfg[member.guild.id].welcomeMessages[member.id] = {

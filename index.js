@@ -51,6 +51,29 @@ const getGuildConfig = (cfg, gid) => {
     return cfg[gid];
 };
 
+const buildVerificationReply = (guildCfg, inClan, clan, clanRank, addedRoleName, userId) => {
+    const roleText = addedRoleName ? `Added role: **${addedRoleName}**` : 'No role assigned yet.';
+
+    if (inClan) {
+        if (guildCfg.memberReply) {
+            return guildCfg.memberReply
+                .replace('{user}', `<@${userId}>`)
+                .replace('{clan}', clan)
+                .replace('{rank}', clanRank || 'N/A')
+                .replace('{role}', addedRoleName || 'None');
+        }
+        return `✅ Welcome! Your RSN is verified and you are a member of **${clan}**${clanRank ? ` (rank ${clanRank})` : ''}. ${roleText}`;
+    } else {
+        if (guildCfg.guestReply) {
+            return guildCfg.guestReply
+                .replace('{user}', `<@${userId}>`)
+                .replace('{clan}', clan)
+                .replace('{role}', addedRoleName || 'None');
+        }
+        return `✅ Welcome! Your RSN is verified but you are not currently listed in **${clan}**. ${roleText}`;
+    }
+};
+
 const refreshSetupWizardPanel = async (guild, cfg, gid) => {
     const panel = cfg[gid].setupWizardPanel;
     if (!panel?.channelId || !panel?.messageId) return;
@@ -316,10 +339,8 @@ client.on('interactionCreate', async interaction => {
                 console.error('Server logs error:', err);
             }
 
-            return interaction.editReply({
-                content: inClan ?
-                    `✅ ${member.user.tag} is verified and a member of ${clan}${clanRank ? ` (rank ${clanRank})` : ''}. ${roleText}` :
-                    `✅ ${member.user.tag} is verified but not listed in ${clan}. ${roleText}`
+            return interaction.editReply({ 
+                content: buildVerificationReply(guildCfg, inClan, clan, clanRank, addedRoleName, targetUser.id)
             });
         }
 
@@ -428,6 +449,34 @@ client.on('interactionCreate', async interaction => {
                 .setStyle(TextInputStyle.Paragraph)
                 .setRequired(false)
                 .setValue(guildCfg.welcomeMessage || '');
+            modal.addComponents(new ActionRowBuilder().addComponents(input));
+            return interaction.showModal(modal);
+        }
+
+        if (customId === SETUP_MEMBER_REPLY_BUTTON) {
+            const modal = new ModalBuilder()
+                .setCustomId('setup_member_reply_modal')
+                .setTitle('Set Member Verified Reply');
+            const input = new TextInputBuilder()
+                .setCustomId('member_reply')
+                .setLabel('Available: {user} {clan} {rank} {role}')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(false)
+                .setValue(guildCfg.memberReply || '');
+            modal.addComponents(new ActionRowBuilder().addComponents(input));
+            return interaction.showModal(modal);
+        }
+
+        if (customId === SETUP_GUEST_REPLY_BUTTON) {
+            const modal = new ModalBuilder()
+                .setCustomId('setup_guest_reply_modal')
+                .setTitle('Set Guest Verified Reply');
+            const input = new TextInputBuilder()
+                .setCustomId('guest_reply')
+                .setLabel('Available: {user} {clan} {role}')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(false)
+                .setValue(guildCfg.guestReply || '');
             modal.addComponents(new ActionRowBuilder().addComponents(input));
             return interaction.showModal(modal);
         }
@@ -547,6 +596,36 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ content: `✅ Clan setup complete!\n• Clan: **${clan}**\n• Welcome channel: ${welcomeChannel.toString()}\n• Member role: ${memberRole.toString()}\n• Guest role: ${guestRole.toString()}${logsChannel ? `\n• Logs channel: ${logsChannel.toString()}` : ''}`, flags: 64 });
     }
 
+    if (interaction.isModalSubmit() && interaction.customId === 'setup_member_reply_modal') {
+        const reply = interaction.fields.getTextInputValue('member_reply').trim();
+        if (reply) {
+            cfg[gid].memberReply = reply;
+        } else {
+            delete cfg[gid].memberReply;
+        }
+        await saveConfig(cfg);
+        await refreshSetupWizardPanel(interaction.guild, cfg, gid);
+        return interaction.reply({ 
+            content: reply ? `✅ Member reply updated:\n${reply}` : '✅ Member reply reset to default.', 
+            flags: 64 
+        });
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId === 'setup_guest_reply_modal') {
+        const reply = interaction.fields.getTextInputValue('guest_reply').trim();
+        if (reply) {
+            cfg[gid].guestReply = reply;
+        } else {
+            delete cfg[gid].guestReply;
+        }
+        await saveConfig(cfg);
+        await refreshSetupWizardPanel(interaction.guild, cfg, gid);
+        return interaction.reply({ 
+            content: reply ? `✅ Guest reply updated:\n${reply}` : '✅ Guest reply reset to default.', 
+            flags: 64 
+        });
+    }    
+
     if (interaction.customId.startsWith('setup_edit_channel_')) {
         const field = interaction.customId.replace('setup_edit_channel_', '');
         cfg[gid][field] = interaction.values[0];
@@ -654,7 +733,9 @@ client.on('interactionCreate', async interaction => {
             console.error('Server logs error:', err);
         }
 
-        return interaction.editReply({ content: inClan ? `${DEFAULT_WELCOME_REPLY} Your RuneScape name is verified and you are a member of ${clan}${clanRank ? ` (rank ${clanRank})` : ''}. ${roleText}` : `${DEFAULT_WELCOME_REPLY} Your RuneScape name is verified, but you are not currently listed in ${clan}. ${roleText}` });
+        return interaction.editReply({ 
+            content: buildVerificationReply(guildCfg, inClan, clan, clanRank, addedRoleName, interaction.user.id)
+        });
     }
 
     if (interaction.isModalSubmit() && interaction.customId === 'setup_welcome_message_modal') {

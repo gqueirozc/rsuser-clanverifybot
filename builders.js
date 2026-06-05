@@ -7,13 +7,15 @@ const {
 const {
     SETUP_WIZARD_BUTTON,
     SETUP_WELCOME_MESSAGE_BUTTON,
-    SETUP_WELCOME_IMAGE_BUTTON
+    SETUP_WELCOME_IMAGE_BUTTON,
+    SETUP_MEMBER_REPLY_BUTTON,
+    SETUP_GUEST_REPLY_BUTTON
 } = require('./constants');
 
 const buildSetupWizardMessage = (guildCfg = {}) => {
     const isConfigured = guildCfg.clan && guildCfg.welcomeChannel && guildCfg.memberRole && guildCfg.guestRole;
 
-    const row = new ActionRowBuilder().addComponents(
+    const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(SETUP_WIZARD_BUTTON)
             .setLabel(isConfigured ? 'Update Clan Setup' : 'Start Clan Setup Wizard')
@@ -28,6 +30,19 @@ const buildSetupWizardMessage = (guildCfg = {}) => {
             .setStyle(ButtonStyle.Secondary)
     );
 
+    const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(SETUP_MEMBER_REPLY_BUTTON)
+            .setLabel(guildCfg.memberReply ? 'Update Member Reply' : 'Set Member Reply')
+            .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+            .setCustomId(SETUP_GUEST_REPLY_BUTTON)
+            .setLabel(guildCfg.guestReply ? 'Update Guest Reply' : 'Set Guest Reply')
+            .setStyle(ButtonStyle.Secondary)
+    );
+
+
+    
     const embed = new EmbedBuilder()
         .setTitle('Clan Setup Wizard')
         .setColor(0x00B0F4);
@@ -42,7 +57,17 @@ const buildSetupWizardMessage = (guildCfg = {}) => {
                 { name: '🧑‍🤝‍🧑 Guest Role', value: `<@&${guildCfg.guestRole}>`, inline: true },
                 { name: '📋 Logs Channel', value: guildCfg.serverLogsChannel ? `<#${guildCfg.serverLogsChannel}>` : '*Not set*', inline: true },
                 { name: '💬 Welcome Message', value: guildCfg.welcomeMessage || '*Not set — using default*', inline: false },
-                { name: '🖼️ Welcome Image', value: guildCfg.welcomeImage ? '✅ Set' : '*Not set*', inline: true }
+                { name: '🖼️ Welcome Image', value: guildCfg.welcomeImage ? '✅ Set' : '*Not set*', inline: true },
+                { 
+                    name: '✅ Member Verified Reply', 
+                    value: guildCfg.memberReply || '*Not set — using default*', 
+                    inline: false 
+                },
+                { 
+                    name: '🔶 Guest Verified Reply', 
+                    value: guildCfg.guestReply || '*Not set — using default*', 
+                    inline: false 
+                },
             );
     } else {
         embed
@@ -54,7 +79,7 @@ const buildSetupWizardMessage = (guildCfg = {}) => {
             );
     }
 
-    return { embeds: [embed], components: [row] };
+    return { embeds: [embed], components: [row1, row2] };
 };
 
 module.exports = { buildSetupWizardMessage };

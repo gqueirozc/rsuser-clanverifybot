@@ -10,6 +10,8 @@ const SETUP_WIZARD_CONTINUE = 'setup_wizard_continue';
 const SETUP_WELCOME_MESSAGE_BUTTON = 'setup_welcome_message_btn';
 const SETUP_WELCOME_IMAGE_BUTTON = 'setup_welcome_image_btn';
 const SETUP_WIZARD_EDIT_SELECT = 'setup_wizard_edit_select';
+const SETUP_MEMBER_REPLY_BUTTON = 'setup_member_reply_btn';
+const SETUP_GUEST_REPLY_BUTTON = 'setup_guest_reply_btn';
 
 module.exports = {
     DEFAULT_SEARCHING_MESSAGE,

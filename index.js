@@ -781,9 +781,6 @@ client.on('guildMemberAdd', async member => {
 
     const messagePayload = { components: [row] };
 
-
-    const messagePayload = { components: [row] };
-
     if (guildCfg.welcomeImage) {
         messagePayload.content = `${welcomeText}\n${guildCfg.welcomeImage}`;
     } else {

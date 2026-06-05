@@ -63,7 +63,9 @@ const {
     TICKET_MANAGE_CUSTOMIZE_TYPE,
     TICKET_MANAGE_CUSTOMIZE_PANEL,
     TICKET_MANAGE_VIEW_TYPES,
-    TICKET_CLAIM_BUTTON
+    TICKET_CLAIM_BUTTON,
+    TICKET_ADD_TYPE_CONTINUE,
+    TICKET_MANAGE_ADD_TYPE_MODAL
 } = require('./constants');
 
 const client = new Client({
@@ -720,7 +722,7 @@ client.on('interactionCreate', async interaction => {
                 .setMaxValues(1);
 
             const continueBtn = new ButtonBuilder()
-                .setCustomId('ticket_add_type_continue')
+                .setCustomId(TICKET_ADD_TYPE_CONTINUE)
                 .setLabel('Continue (enter name & description)')
                 .setStyle(ButtonStyle.Primary);
 

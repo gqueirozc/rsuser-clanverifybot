@@ -426,7 +426,7 @@ client.on('interactionCreate', async interaction => {
                 .setCustomId('welcome_message')
                 .setLabel('Message (use {user} for the member mention)')
                 .setStyle(TextInputStyle.Paragraph)
-                .setRequired(true)
+                .setRequired(false)
                 .setValue(guildCfg.welcomeMessage || '');
             modal.addComponents(new ActionRowBuilder().addComponents(input));
             return interaction.showModal(modal);
@@ -700,14 +700,23 @@ client.on('guildMemberAdd', async member => {
 
     const messagePayload = { components: [row] };
 
+
+    const messagePayload = { components: [row] };
+
     if (guildCfg.welcomeImage) {
-        const embed = new EmbedBuilder()
-            .setImage(guildCfg.welcomeImage)
-            .setDescription(welcomeText);
-        messagePayload.embeds = [embed];
+        messagePayload.content = `${welcomeText}\n${guildCfg.welcomeImage}`;
     } else {
         messagePayload.content = welcomeText;
     }
+    
+    // if (guildCfg.welcomeImage) {
+    //     const embed = new EmbedBuilder()
+    //         .setImage(guildCfg.welcomeImage)
+    //         .setDescription(welcomeText);
+    //     messagePayload.embeds = [embed];
+    // } else {
+    //     messagePayload.content = welcomeText;
+    // }
 
     const msg = await ch.send(messagePayload);
 

@@ -20,7 +20,7 @@ const buildSetupWizardMessage = (guildCfg = {}) => {
             .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
             .setCustomId(SETUP_WELCOME_MESSAGE_BUTTON)
-            .setLabel('Set Welcome Message')
+            .setLabel(guildCfg.welcomeMessage ? 'Update Welcome Message' : 'Set Welcome Message')
             .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
             .setCustomId(SETUP_WELCOME_IMAGE_BUTTON)

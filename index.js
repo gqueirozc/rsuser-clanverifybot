@@ -784,10 +784,19 @@ client.on('guildMemberAdd', async member => {
     const messagePayload = { components: [row] };
 
     if (guildCfg.welcomeImage) {
-        messagePayload.content = `${welcomeText}\n${guildCfg.welcomeImage}`;
+        messagePayload.content = welcomeText;
+        messagePayload.embeds = [{
+            image: { url: guildCfg.welcomeImage }
+        }];
     } else {
         messagePayload.content = welcomeText;
     }
+
+    // if (guildCfg.welcomeImage) {
+    //     messagePayload.content = `${welcomeText}\n${guildCfg.welcomeImage}`;
+    // } else {
+    //     messagePayload.content = welcomeText;
+    // }
     
     // if (guildCfg.welcomeImage) {
     //     const embed = new EmbedBuilder()

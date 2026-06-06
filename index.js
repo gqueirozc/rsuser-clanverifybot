@@ -768,6 +768,8 @@ client.on('interactionCreate', async interaction => {
 });
 
 client.on('guildMemberAdd', async member => {
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
     const cfg = await loadConfig();
     const guildCfg = cfg[member.guild.id];
 

@@ -692,12 +692,18 @@ client.on('interactionCreate', async interaction => {
                     await member.roles.add(role);
                     addedRoleName = role.name;
                 }
+                if (guildCfg.guestRole && member.roles.cache.has(guildCfg.guestRole)) {
+                    await member.roles.remove(guildCfg.guestRole).catch(() => null);
+                }
             }
             if (!inClan && guildCfg.guestRole) {
                 const role = interaction.guild.roles.cache.get(guildCfg.guestRole) || await interaction.guild.roles.fetch(guildCfg.guestRole).catch(() => null);
                 if (role) {
                     await member.roles.add(role);
                     addedRoleName = role.name;
+                }
+                if (guildCfg.memberRole && member.roles.cache.has(guildCfg.memberRole)) {
+                    await member.roles.remove(guildCfg.memberRole).catch(() => null);
                 }
             }
         } catch (err) {

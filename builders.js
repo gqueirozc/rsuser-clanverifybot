@@ -44,7 +44,7 @@ const buildSetupWizardMessage = (guildCfg = {}) => {
 
     
     const embed = new EmbedBuilder()
-        .setTitle('Clan Setup Wizard')
+        .setTitle('Bot Setup Wizard')
         .setColor(0x00B0F4);
 
     if (isConfigured) {
@@ -57,7 +57,7 @@ const buildSetupWizardMessage = (guildCfg = {}) => {
                 { name: '🧑‍🤝‍🧑 Guest Role', value: `<@&${guildCfg.guestRole}>`, inline: true },
                 { name: '📋 Logs Channel', value: guildCfg.serverLogsChannel ? `<#${guildCfg.serverLogsChannel}>` : '*Not set*', inline: true },
                 { name: '💬 Welcome Message', value: guildCfg.welcomeMessage || '*Not set — using default*', inline: false },
-                { name: '🖼️ Welcome Image', value: guildCfg.welcomeImage ? '✅ Set' : '*Not set*', inline: true },
+                { name: '🖼️ Welcome Image (optional)', value: guildCfg.welcomeImage ? '✅ Set' : '*Not set*', inline: true },
                 { 
                     name: '✅ Member Verified Reply', 
                     value: guildCfg.memberReply || '*Not set — using default*', 

@@ -170,7 +170,8 @@ client.once('ready', async () => {
             .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
         new SlashCommandBuilder()
             .setName('status')
-            .setDescription('Show config'),
+            .setDescription('Show config')
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
         new SlashCommandBuilder()
             .setName('setup-welcome-message')
             .setDescription('Set the message sent when a new member joins')
@@ -398,7 +399,15 @@ client.on('interactionCreate', async interaction => {
             }
 
             return interaction.editReply({
-                content: buildVerificationReply(guildCfg, inClan, clan, clanRank, addedRoleName, targetUser.id)
+                content: [
+                    `✅ **Member updated: <@${targetUser.id}>**`,
+                    ``,
+                    `**RSN:** ${rsn}`,
+                    `**Clan status:** ${inClan ? `In clan (${clanRank})` : 'Not in clan'}`,
+                    ``,
+                    `**Nickname:** ${previousNickname} → ${rsn}`,
+                    `**Role:** ${previousRole} → ${addedRoleName ?? 'Unchanged'}`,
+                ].join('\n')
             });
         }
 

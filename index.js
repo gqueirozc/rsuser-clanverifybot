@@ -792,14 +792,15 @@ client.on('interactionCreate', async interaction => {
             console.error(e);
         }
 
+        let member = null;
         try {
-            const member = await interaction.guild.members.fetch(interaction.user.id);
+            member = await interaction.guild.members.fetch(interaction.user.id);
             await member.setNickname(rsn);
         } catch (err) {
             console.error('Nickname error:', err);
         }
 
-        const addedRoleName = await applyRoles(member, guildCfg, interaction, inClan, true);
+        const addedRoleName = await applyRoles(member, guildCfg, interaction, inClan, false);
 
         try {
             await removeWelcomeMessage(client, cfg, gid, guildCfg, interaction.user.id);

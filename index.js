@@ -76,6 +76,32 @@ const buildVerificationReply = (guildCfg, inClan, clan, clanRank, addedRoleName,
     }
 };
 
+async function applyRoles(member, guildCfg, interaction, inClan, isManualVerify = false) {
+    const memberRole = guildCfg.memberRole ? await interaction.guild.roles.fetch(guildCfg.memberRole).catch(() => null) : null;
+    const guestRole = guildCfg.guestRole ? await interaction.guild.roles.fetch(guildCfg.guestRole).catch(() => null) : null;
+    let addedRoleName = null;
+
+    if (inClan && memberRole) {
+        await member.roles.add(memberRole);
+        addedRoleName = memberRole.name;
+        if (guestRole && (isManualVerify || !member.roles.cache.has(memberRole.id))) {
+            await member.roles.remove(guestRole).catch(() => null);
+        }
+    }
+
+    if (!inClan && guestRole) {
+        if (isManualVerify || !member.roles.cache.has(memberRole?.id)) {
+            await member.roles.add(guestRole);
+            addedRoleName = guestRole.name;
+            if (memberRole && (isManualVerify || member.roles.cache.has(memberRole.id))) {
+                await member.roles.remove(memberRole).catch(() => null);
+            }
+        }
+    }
+
+    return addedRoleName;
+}
+
 const refreshSetupWizardPanel = async (guild, cfg, gid) => {
     const panel = cfg[gid].setupWizardPanel;
     if (!panel?.channelId || !panel?.messageId) return;
@@ -304,25 +330,7 @@ client.on('interactionCreate', async interaction => {
                 console.error('Nickname error:', err);
             }
 
-            let addedRoleName = null;
-            try {
-                const memberRole = guildCfg.memberRole ? await interaction.guild.roles.fetch(guildCfg.memberRole).catch(() => null) : null;
-                const guestRole = guildCfg.guestRole ? await interaction.guild.roles.fetch(guildCfg.guestRole).catch(() => null) : null;
-
-                if (inClan && memberRole) {
-                    await member.roles.add(memberRole);
-                    addedRoleName = memberRole.name;
-                    if (guestRole) await member.roles.remove(guestRole).catch(() => null);
-                }
-
-                if (!inClan && guestRole) {
-                    await member.roles.add(guestRole);
-                    addedRoleName = guestRole.name;
-                    if (memberRole) await member.roles.remove(memberRole).catch(() => null);
-                }
-            } catch (err) {
-                console.error('Role error:', err);
-            }
+            const addedRoleName = await applyRoles(member, guildCfg, interaction, inClan, true);
 
             await removeWelcomeMessage(client, cfg, gid, guildCfg, member.id);
             await saveConfig(cfg);
@@ -683,32 +691,7 @@ client.on('interactionCreate', async interaction => {
             console.error('Nickname error:', err);
         }
 
-        let addedRoleName = null;
-        try {
-            const member = await interaction.guild.members.fetch(interaction.user.id);
-            if (inClan && guildCfg.memberRole) {
-                const role = interaction.guild.roles.cache.get(guildCfg.memberRole) || await interaction.guild.roles.fetch(guildCfg.memberRole).catch(() => null);
-                if (role) {
-                    await member.roles.add(role);
-                    addedRoleName = role.name;
-                }
-                if (guildCfg.guestRole && member.roles.cache.has(guildCfg.guestRole)) {
-                    await member.roles.remove(guildCfg.guestRole).catch(() => null);
-                }
-            }
-            if (!inClan && guildCfg.guestRole) {
-                const role = interaction.guild.roles.cache.get(guildCfg.guestRole) || await interaction.guild.roles.fetch(guildCfg.guestRole).catch(() => null);
-                if (role) {
-                    await member.roles.add(role);
-                    addedRoleName = role.name;
-                }
-                if (guildCfg.memberRole && member.roles.cache.has(guildCfg.memberRole)) {
-                    await member.roles.remove(guildCfg.memberRole).catch(() => null);
-                }
-            }
-        } catch (err) {
-            console.error('Role error:', err);
-        }
+        const addedRoleName = await applyRoles(member, guildCfg, interaction, inClan, true);
 
         try {
             await removeWelcomeMessage(client, cfg, gid, guildCfg, interaction.user.id);

@@ -171,7 +171,7 @@ client.once('ready', async () => {
             .setDescription('Verify a member using their RSN and update nickname/roles')
             .addUserOption(o => o.setName('member').setDescription('The member to verify').setRequired(true))
             .addStringOption(o => o.setName('rsn').setDescription('The RuneScape name to verify').setRequired(true))
-            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+            .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
         new SlashCommandBuilder()
             .setName('reset-config')
             .setDescription('Factory reset bot configuration (clears all settings)')

@@ -80,6 +80,8 @@ const buildVerificationReply = (guildCfg, inClan, clan, clanRank, addedRoleName,
 };
 
 async function applyRoles(member, guildCfg, interaction, inClan, isManualVerify = false) {
+    member = await member.fetch();
+    
     const memberRole = guildCfg.memberRole ? await interaction.guild.roles.fetch(guildCfg.memberRole).catch(() => null) : null;
     const guestRole = guildCfg.guestRole ? await interaction.guild.roles.fetch(guildCfg.guestRole).catch(() => null) : null;
     let addedRoleName = null;

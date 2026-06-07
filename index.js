@@ -363,7 +363,9 @@ client.on('interactionCreate', async interaction => {
                 ]
             });
 
-            const confirmation = await interaction.channel.awaitMessageComponent({
+            const reply = await interaction.fetchReply();
+
+            const confirmation = await reply.awaitMessageComponent({
                 filter: i => i.user.id === interaction.user.id && ['verify_member_confirm', 'verify_member_cancel'].includes(i.customId),
                 time: 60_000
             }).catch(() => null);

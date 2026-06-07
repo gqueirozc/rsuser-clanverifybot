@@ -303,6 +303,7 @@ client.on('interactionCreate', async interaction => {
             }
 
             await interaction.deferReply({ flags: 64 });
+
             if (!(await verifyRSN(rsn))) {
                 return interaction.editReply({ content: `❌ Could not verify RSN ${rsn}. Please check the name and try again.` });
             }
@@ -324,6 +325,55 @@ client.on('interactionCreate', async interaction => {
                 console.error(e);
             }
 
+            const memberRole = guildCfg.memberRole ? await interaction.guild.roles.fetch(guildCfg.memberRole).catch(() => null) : null;
+            const guestRole = guildCfg.guestRole ? await interaction.guild.roles.fetch(guildCfg.guestRole).catch(() => null) : null;
+
+            const hadMemberRole = memberRole ? member.roles.cache.has(memberRole.id) : false;
+            const hadGuestRole = guestRole ? member.roles.cache.has(guestRole.id) : false;
+            const previousRole = hadMemberRole ? memberRole.name : hadGuestRole ? guestRole.name : 'None';
+            const newRole = inClan ? (memberRole?.name ?? 'None') : (guestRole?.name ?? 'None');
+            const previousNickname = member.nickname || member.user.username;
+
+            const confirmContent = [
+                `**Verify member: <@${targetUser.id}>**`,
+                ``,
+                `**RSN:** ${rsn}`,
+                `**Clan status:** ${inClan ? `In clan (${clanRank})` : 'Not in clan'}`,
+                ``,
+                `**Nickname:** ${previousNickname} → ${rsn}`,
+                `**Role:** ${previousRole} → ${newRole}`,
+                ``,
+                `Do you want to proceed?`
+            ].join('\n');
+
+            await interaction.editReply({
+                content: confirmContent,
+                components: [
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('verify_member_confirm')
+                            .setLabel('Confirm')
+                            .setStyle(ButtonStyle.Success),
+                        new ButtonBuilder()
+                            .setCustomId('verify_member_cancel')
+                            .setLabel('Cancel')
+                            .setStyle(ButtonStyle.Secondary)
+                    )
+                ]
+            });
+
+            const confirmation = await interaction.channel.awaitMessageComponent({
+                filter: i => i.user.id === interaction.user.id && ['verify_member_confirm', 'verify_member_cancel'].includes(i.customId),
+                time: 60_000
+            }).catch(() => null);
+
+            if (!confirmation || confirmation.customId === 'verify_member_cancel') {
+                await interaction.editReply({ content: '❌ Cancelled.', components: [] });
+                return;
+            }
+
+            await confirmation.update({ content: '⏳ Processing...', components: [] });
+
             try {
                 await member.setNickname(rsn);
             } catch (err) {
@@ -334,8 +384,6 @@ client.on('interactionCreate', async interaction => {
 
             await removeWelcomeMessage(client, cfg, gid, guildCfg, member.id);
             await saveConfig(cfg);
-
-            const roleText = addedRoleName ? `Added role: ${addedRoleName}` : 'No role assigned yet.';
 
             try {
                 if (guildCfg.serverLogsChannel) {
@@ -349,10 +397,70 @@ client.on('interactionCreate', async interaction => {
                 console.error('Server logs error:', err);
             }
 
-            return interaction.editReply({ 
+            return interaction.editReply({
                 content: buildVerificationReply(guildCfg, inClan, clan, clanRank, addedRoleName, targetUser.id)
             });
         }
+
+        // if (interaction.commandName === 'verify-member') {
+        //     const targetUser = interaction.options.getUser('member');
+        //     const rsn = interaction.options.getString('rsn');
+        //     const clan = guildCfg?.clan;
+        //     if (!clan) {
+        //         return interaction.reply({ content: 'Clan not set. Use /setup-clan first.', flags: 64 });
+        //     }
+
+        //     await interaction.deferReply({ flags: 64 });
+        //     if (!(await verifyRSN(rsn))) {
+        //         return interaction.editReply({ content: `❌ Could not verify RSN ${rsn}. Please check the name and try again.` });
+        //     }
+
+        //     const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+        //     if (!member) {
+        //         return interaction.editReply({ content: 'Could not find that member in this server.' });
+        //     }
+
+        //     let inClan = false;
+        //     let clanRank = null;
+        //     try {
+        //         const clanMember = await getClanMemberInfo(rsn, clan);
+        //         if (clanMember) {
+        //             inClan = true;
+        //             clanRank = clanMember.rank;
+        //         }
+        //     } catch (e) {
+        //         console.error(e);
+        //     }
+
+        //     try {
+        //         await member.setNickname(rsn);
+        //     } catch (err) {
+        //         console.error('Nickname error:', err);
+        //     }
+
+        //     const addedRoleName = await applyRoles(member, guildCfg, interaction, inClan, true);
+
+        //     await removeWelcomeMessage(client, cfg, gid, guildCfg, member.id);
+        //     await saveConfig(cfg);
+
+        //     const roleText = addedRoleName ? `Added role: ${addedRoleName}` : 'No role assigned yet.';
+
+        //     try {
+        //         if (guildCfg.serverLogsChannel) {
+        //             const logChannel = await interaction.guild.channels.fetch(guildCfg.serverLogsChannel).catch(() => null);
+        //             if (logChannel) {
+        //                 const embed = buildVerificationEmbed(member, rsn, inClan, clan, clanRank, addedRoleName, 'Manual RSN Verification');
+        //                 await logChannel.send({ embeds: [embed] });
+        //             }
+        //         }
+        //     } catch (err) {
+        //         console.error('Server logs error:', err);
+        //     }
+
+        //     return interaction.editReply({ 
+        //         content: buildVerificationReply(guildCfg, inClan, clan, clanRank, addedRoleName, targetUser.id)
+        //     });
+        // }
 
         if (interaction.commandName === 'reset-config') {
             const confirmButton = new ButtonBuilder().setCustomId('confirm_reset_config').setLabel('Confirm Reset').setStyle(ButtonStyle.Danger);

@@ -47,6 +47,9 @@ const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
 });
 
+client.on('error', err => console.error('Client error:', err));
+process.on('unhandledRejection', err => console.error('Unhandled rejection:', err));
+
 const getGuildConfig = (cfg, gid) => {
     if (!gid) return null;
     if (!cfg[gid]) cfg[gid] = {};

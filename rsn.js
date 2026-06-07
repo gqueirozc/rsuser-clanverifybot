@@ -19,21 +19,14 @@ async function getClanMemberInfo(rsn, clanName) {
         if (!r.ok) return null;
 
         const csv = await r.text();
-        const normalize = str => str.toLowerCase().replace(/\u00a0/g, ' ').replace(/_/g, ' ').trim();
+        const normalize = str => str.toLowerCase().replace(/\uFFFD/g, ' ').replace(/\u00a0/g, ' ').replace(/_/g, ' ').trim();
 
         const line = csv.split('\n').find(line => {
-            const raw = line.split(',')[0] || '';
-            const name = normalize(raw);
-            if (raw.toLowerCase().includes('pop')) {
-                console.log('Char codes:', [...raw].map(c => ({ char: c, code: c.charCodeAt(0) })));
-            }
+            const name = normalize(line.split(',')[0] || '');
             return name === normalize(rsn);
         });
 
-        if (!line) {
-            console.log('No match found for RSN:', rsn);
-            return null;
-        }
+        if (!line) return null;
 
         const parts = line.split(',');
         return {

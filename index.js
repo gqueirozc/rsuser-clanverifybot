@@ -881,7 +881,14 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
+const recentJoins = new Set();
+
 client.on('guildMemberAdd', async member => {
+    const key = `${member.guild.id}-${member.id}`;
+    if (recentJoins.has(key)) return;
+    recentJoins.add(key);
+    setTimeout(() => recentJoins.delete(key), 5000);
+    
     await new Promise(resolve => setTimeout(resolve, 3000));
     
     const cfg = await loadConfig();

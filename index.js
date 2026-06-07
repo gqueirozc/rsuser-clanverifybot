@@ -89,16 +89,19 @@ async function applyRoles(member, guildCfg, interaction, inClan, isManualVerify 
     if (inClan && memberRole) {
         await member.roles.add(memberRole);
         addedRoleName = memberRole.name;
-        if (guestRole && (isManualVerify || !member.roles.cache.has(memberRole.id))) {
+        // Remove guest if they have it
+        if (guestRole && member.roles.cache.has(guestRole.id)) {
             await member.roles.remove(guestRole).catch(() => null);
         }
     }
 
     if (!inClan && guestRole) {
+        // Skip if they already have member role, unless manual verify
         if (isManualVerify || !member.roles.cache.has(memberRole?.id)) {
             await member.roles.add(guestRole);
             addedRoleName = guestRole.name;
-            if (memberRole && (isManualVerify || member.roles.cache.has(memberRole.id))) {
+            // Remove member role if they have it
+            if (memberRole && member.roles.cache.has(memberRole.id)) {
                 await member.roles.remove(memberRole).catch(() => null);
             }
         }

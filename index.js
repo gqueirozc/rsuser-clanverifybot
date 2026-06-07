@@ -199,6 +199,9 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
+    if (!interaction.isCommand() && !interaction.isModalSubmit() && !interaction.isButton()) return;
+    if (Date.now() - interaction.createdTimestamp > 3000) return;
+
     const cfg = await loadConfig();
     const gid = interaction.guild?.id;
     const guildCfg = getGuildConfig(cfg, gid);

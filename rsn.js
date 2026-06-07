@@ -20,8 +20,9 @@ async function getClanMemberInfo(rsn, clanName) {
 
         const csv = await r.text();
         const line = csv.split('\n').find(line => {
-            const name = (line.split(',')[0] || '').trim();
-            return name.toLowerCase() === rsn.toLowerCase();
+            const name = (line.split(',')[0] || '').trim().replace(/\u00a0/g, ' ').replace(/_/g, ' ');
+            console.log('Comparing:', JSON.stringify(name), 'vs', JSON.stringify(rsn.toLowerCase().replace(/_/g, ' ')));
+            return name.toLowerCase() === rsn.toLowerCase().replace(/_/g, ' ');
         });
 
         if (!line) return null;

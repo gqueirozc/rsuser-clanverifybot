@@ -14,7 +14,8 @@ const {
     ChannelSelectMenuBuilder,
     RoleSelectMenuBuilder,
     ChannelType,
-    StringSelectMenuBuilder
+    StringSelectMenuBuilder,
+    AttachmentBuilder
 } = require('discord.js');
 
 const { loadConfig, saveConfig, deleteGuildConfig, cleanStaleTemp } = require('./config');

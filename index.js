@@ -492,7 +492,10 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.commandName === 'status') {
-            return interaction.reply({ content: '```json\n' + JSON.stringify(cfg[gid] || {}, null, 2) + '\n```', flags: 64 });
+            const json = JSON.stringify(cfg[gid] || {}, null, 2);
+            const attachment = new AttachmentBuilder(Buffer.from(json, 'utf-8'), { name: `status-${gid}.json` });
+
+            return interaction.reply({ files: [attachment], flags: 64 });
         }
     }
 

@@ -6,7 +6,7 @@ let db;
 const connect = async () => {
     if (!db) {
         await client.connect();
-        db = client.db('clanbot'); // name your DB whatever you like
+        db = client.db('clanbot');
     }
     return db;
 };

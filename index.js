@@ -205,7 +205,13 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
-    if (!interaction.isCommand() && !interaction.isModalSubmit() && !interaction.isButton()) return;
+    if (
+        !interaction.isCommand() &&
+        !interaction.isModalSubmit() &&
+        !interaction.isButton() &&
+        !interaction.isAnySelectMenu()
+    ) return;
+
     if (Date.now() - interaction.createdTimestamp > 3000) return;
 
     const cfg = await loadConfig();
@@ -906,13 +912,13 @@ client.on('guildMemberAdd', async member => {
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('add_rsn')
-            .setLabel('Link with RSN')
+            .setLabel('Verify RSN')
             .setStyle(ButtonStyle.Primary)
     );
 
     const welcomeText = guildCfg.welcomeMessage
         ? guildCfg.welcomeMessage.replace('{user}', `<@${member.id}>`)
-        : `<@${member.id}> Click Link with RSN below to verify your RuneScape name and get your role.`;
+        : `<@${member.id}> Click the Verify RSN button below to verify your RuneScape name and get your role.`;
 
     const messagePayload = { components: [row] };
 
